@@ -350,6 +350,21 @@
     <string name="settings_nostr_identity_export_success">nsec copied to clipboard</string>
     <string name="settings_nostr_identity_npub_copied">npub copied to clipboard</string>
     <string name="settings_nostr_identity_no_key">No key configured</string>
+    <string name="settings_nostr_identity_amber_login_title">Login with Amber</string>
+    <string name="settings_nostr_identity_amber_login_summary">Use Amber external signer (recommended)</string>
+    <string name="settings_nostr_identity_amber_connected">Connected via Amber</string>
+    <string name="settings_nostr_identity_amber_disconnect_title">Disconnect Amber</string>
+    <string name="settings_nostr_identity_amber_disconnect_summary">Remove Amber connection and clear identity</string>
+    <string name="settings_nostr_identity_amber_guidance_title">Amber permissions</string>
+    <string name="settings_nostr_identity_amber_guidance_message">When Amber asks about decryption permissions, select \"Always allow\". Otherwise nstrfy won\'t be able to decrypt notifications in the background.</string>
+    <string name="settings_nostr_identity_amber_login_success">Logged in via Amber</string>
+    <string name="settings_nostr_identity_amber_login_failed">Amber login failed</string>
+    <string name="settings_nostr_identity_amber_not_installed">Amber is not installed</string>
+    <string name="settings_nostr_identity_amber_disconnected">Amber disconnected</string>
+    <string name="settings_nostr_identity_amber_permission_warning_title">Permission issue</string>
+    <string name="settings_nostr_identity_amber_permission_warning">Amber did not grant \"Always allow\" for decryption. Notifications may not work in the background. Please try again and select \"Always allow\".</string>
+    <string name="notification_encrypted_title">New encrypted notification</string>
+    <string name="notification_encrypted_text">Open nstrfy to decrypt and view</string>
 
     <!-- Settings: Relays -->
     <string name="settings_relays_header">Relays</string>

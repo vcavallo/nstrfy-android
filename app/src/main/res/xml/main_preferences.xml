@@ -17,6 +17,15 @@
                 app:key="@string/settings_nostr_identity_export_key"
                 app:title="@string/settings_nostr_identity_export_title"
                 app:summary="@string/settings_nostr_identity_export_summary"/>
+        <Preference
+                app:key="@string/settings_nostr_identity_amber_login_key"
+                app:title="@string/settings_nostr_identity_amber_login_title"
+                app:summary="@string/settings_nostr_identity_amber_login_summary"/>
+        <Preference
+                app:key="@string/settings_nostr_identity_amber_disconnect_key"
+                app:title="@string/settings_nostr_identity_amber_disconnect_title"
+                app:summary="@string/settings_nostr_identity_amber_disconnect_summary"
+                app:isPreferenceVisible="false"/>
     </PreferenceCategory>
     <PreferenceCategory app:title="@string/settings_relays_header">
         <Preference

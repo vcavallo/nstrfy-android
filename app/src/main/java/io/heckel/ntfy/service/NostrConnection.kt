@@ -56,13 +56,15 @@ class NostrConnection(
     private val connectionId: NostrConnectionId,
     private val repository: Repository,
     private val keyManager: KeyManager,
+    private val decryptor: io.heckel.ntfy.crypto.EventDecryptor,
     private val connectionDetailsListener: (String, ConnectionState, Throwable?, Long) -> Unit,
     private val notificationListener: (Subscription, Notification) -> Unit,
+    private val pendingEventListener: ((Event) -> Unit)? = null,
     private val alarmManager: AlarmManager
 ) : Connection {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val parser = NostrNotificationParser(keyManager)
+    private val parser = NostrNotificationParser(decryptor)
     private var quartzClient: QuartzNostrClient? = null
     private var errorCount = 0
     private var closed = false
@@ -215,7 +217,19 @@ class NostrConnection(
             // Find matching subscription(s) via topic routing
             val subscriptions = repository.getSubscriptions()
             val parsed = parser.parse(event, subscriptions) ?: run {
-                Log.d(TAG, "(gid=$globalId): Event could not be parsed or routed, discarding")
+                // Parse failed — if this event is addressed to us (#p tag), it's likely
+                // encrypted and we couldn't decrypt (Amber not available). Store it for
+                // later decryption when the app comes to foreground.
+                val userPubkey = try { keyManager.getPubKeyHex() } catch (e: Exception) { null }
+                val isForUs = userPubkey != null && event.tags.any {
+                    it.size >= 2 && it[0] == "p" && it[1] == userPubkey
+                }
+                if (isForUs) {
+                    Log.d(TAG, "(gid=$globalId): Encrypted event for us, queuing for foreground decryption")
+                    pendingEventListener?.invoke(event)
+                } else {
+                    Log.d(TAG, "(gid=$globalId): Event could not be parsed or routed, discarding")
+                }
                 return@launch
             }
 
