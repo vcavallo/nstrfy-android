@@ -11,6 +11,9 @@
 
 set -e
 
+EVENT_KIND=7741
+EXPIRATION_SECONDS=3600  # 1 hour
+
 TOPIC="${TOPIC:-test}"
 RELAY="${RELAY:-wss://nos.lol}"
 PRIORITY="${3:-default}"
@@ -36,6 +39,7 @@ fi
 TITLE="$1"
 MESSAGE="${2:-$1}"
 TIMESTAMP=$(date +%s)
+EXPIRATION=$((TIMESTAMP + EXPIRATION_SECONDS))
 
 # Build JSON payload
 PAYLOAD=$(cat <<EOF
@@ -57,26 +61,28 @@ if [ -n "$NPUB" ]; then
     D_TAG="${TIMESTAMP}-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
     nak event \
-        --kind 30078 \
+        --kind $EVENT_KIND \
         --content "$CONTENT" \
         -t "p=$RECIPIENT_HEX" \
         -t "d=$D_TAG" \
+        -t "expiration=$EXPIRATION" \
         --sec "$SENDER_KEY" \
         "$RELAY"
     echo ""
-    echo "Sent encrypted notification to $NPUB on topic '$TOPIC' via $RELAY"
+    echo "Sent encrypted notification to $NPUB on topic '$TOPIC' via $RELAY (expires in ${EXPIRATION_SECONDS}s)"
 else
     # Public mode: plain JSON content, no #p tag
     D_TAG="${TIMESTAMP}-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
     nak event \
-        --kind 30078 \
+        --kind $EVENT_KIND \
         --content "$PAYLOAD" \
         -t "d=$D_TAG" \
+        -t "expiration=$EXPIRATION" \
         --sec "$SENDER_KEY" \
         "$RELAY"
     echo ""
-    echo "Sent public notification on topic '$TOPIC' via $RELAY"
+    echo "Sent public notification on topic '$TOPIC' via $RELAY (expires in ${EXPIRATION_SECONDS}s)"
     echo "Sender pubkey: $SENDER_PUB"
     echo "(Add this pubkey to the topic's allowlist if whitelist is enabled)"
 fi

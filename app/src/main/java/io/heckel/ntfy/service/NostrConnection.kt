@@ -43,7 +43,7 @@ data class NostrConnectionId(
 
 /**
  * Maintains a persistent connection to a set of nostr relays and listens for
- * kind 30078 notification events. Replaces WsConnection / JsonConnection.
+ * kind 7741 notification events. Replaces WsConnection / JsonConnection.
  *
  * A single instance handles ALL subscriptions: it builds one relay filter per
  * subscription mode (inbox vs. public) and routes parsed events to the correct
@@ -190,7 +190,7 @@ class NostrConnection(
             client.openReqSubscription(subId = SUB_INBOX, filters = filterMap)
         }
 
-        // Public filter: all kind 30078 events (topic + sender filtering is client-side)
+        // Public filter: all kind 7741 events (topic + sender filtering is client-side)
         // This catches public/unencrypted events that don't have a #p tag
         val publicFilter = if (allAllowedSenders.isNotEmpty()) {
             Filter(
@@ -212,7 +212,7 @@ class NostrConnection(
     private fun handleEvent(event: Event) {
         scope.launch {
             val senderPubkey = event.pubKey
-            Log.d(TAG, "(gid=$globalId): Received kind 30078 event id=${event.id.take(8)} from $senderPubkey")
+            Log.d(TAG, "(gid=$globalId): Received kind 7741 event id=${event.id.take(8)} from $senderPubkey")
 
             // Find matching subscription(s) via topic routing
             val subscriptions = repository.getSubscriptions()
@@ -260,7 +260,7 @@ class NostrConnection(
     companion object {
         private const val TAG = "NstrfyNostrConn"
         private const val RECONNECT_TAG = "NostrReconnect"
-        private const val KIND_NSTRFY = 30078
+        private const val KIND_NSTRFY = 7741
         private const val SUB_INBOX = "nstrfy-inbox"
         private const val SUB_PUBLIC = "nstrfy-public"
         const val NOSTR_SENTINEL = "nostr://"
