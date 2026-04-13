@@ -363,6 +363,8 @@
     <string name="settings_nostr_identity_amber_disconnected">Amber disconnected</string>
     <string name="settings_nostr_identity_amber_permission_warning_title">Permission issue</string>
     <string name="settings_nostr_identity_amber_permission_warning">Amber did not grant \"Always allow\" for decryption. Notifications may not work in the background. Please try again and select \"Always allow\".</string>
+    <string name="main_banner_identity_text">Connect your nostr identity to receive notifications. Go to Settings and log in with Amber or import your nsec.</string>
+    <string name="main_banner_identity_button">Open Settings</string>
     <string name="notification_encrypted_title">New encrypted notification</string>
     <string name="notification_encrypted_text">Open nstrfy to decrypt and view</string>
 
