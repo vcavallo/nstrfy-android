@@ -1,0 +1,14 @@
+repository: https://github.com/vcavallo/nstrfy-android
+name: nstrfy.sh
+description: Subscribe to public/private topic-based native push-notficiations, powered by Kind 7741 events
+summary: ntfy.sh-shaped push notifications over nostr
+tags:
+    - ntfy
+    - notification
+    - notifications
+    - push
+    - "7741"
+license: WTFPL
+website: https://github.com/vcavallo/nstrfy-android
+metadata_sources:
+    - github
