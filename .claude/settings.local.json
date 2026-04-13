@@ -39,7 +39,8 @@
       "Bash(cp /home/vcavallo/.gradle/caches/modules-2/files-2.1/com.vitorpamplona.quartz/quartz-android/1.06.0/517ad482ce2e7946661bae37e7c76cf7df84fe5f/quartz.aar /tmp/quartz.aar)",
       "Bash(unzip -l /tmp/quartz.aar)",
       "Bash(unzip -o quartz.aar classes.jar)",
-      "Bash(unzip -l classes.jar)"
+      "Bash(unzip -l classes.jar)",
+      "Bash(nix-shell -p python3 --run 'python3 -c \":*)"
     ]
   }
 }

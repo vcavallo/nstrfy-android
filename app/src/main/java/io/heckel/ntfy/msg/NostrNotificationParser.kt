@@ -20,7 +20,7 @@ private const val PRIORITY_LOW = 2
 private const val PRIORITY_MIN = 1
 
 /**
- * Parses a nostr kind 30078 event into a (Subscription, Notification) pair.
+ * Parses a nostr kind 7741 event into a (Subscription, Notification) pair.
  *
  * Protocol:
  * - content is NIP-44 encrypted JSON (primary) or NIP-04 encrypted JSON (fallback)
