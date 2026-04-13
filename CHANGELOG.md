@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## v1.1.0
+
+### Changed
+
+- Fix App ID
+
 ## v1.0.0
 
 ### Changed
