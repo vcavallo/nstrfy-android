@@ -76,6 +76,10 @@ class SubscriberService : Service() {
     private var serviceNotification: Notification? = null
     private val refreshMutex = Mutex() // Ensure refreshConnections() is only run one at a time
 
+    private val pendingEncryptedEvents by lazy {
+        (application as io.heckel.ntfy.app.Application).pendingEncryptedEvents
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand executed with startId: $startId")
 
@@ -251,12 +255,15 @@ class SubscriberService : Service() {
         // Open new connection
         newIds.forEach { connectionId ->
             val alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
+            val decryptor = (application as io.heckel.ntfy.app.Application).createDecryptor()
             val connection = NostrConnection(
                 connectionId = connectionId,
                 repository = repository,
                 keyManager = keyManager,
+                decryptor = decryptor,
                 connectionDetailsListener = ::onConnectionDetailsChanged,
                 notificationListener = ::onNotificationReceived,
+                pendingEventListener = ::onPendingEncryptedEvent,
                 alarmManager = alarmManager
             )
             connections[connectionId] = connection
@@ -281,6 +288,31 @@ class SubscriberService : Service() {
             serviceNotification = createNotification(title, text)
             notificationManager?.notify(NOTIFICATION_SERVICE_ID, serviceNotification)
         }
+    }
+
+    private fun onPendingEncryptedEvent(event: com.vitorpamplona.quartz.nip01Core.core.Event) {
+        // Store for later decryption when app comes to foreground
+        pendingEncryptedEvents.add(event)
+        (application as io.heckel.ntfy.app.Application).pendingEventSignal.postValue(pendingEncryptedEvents.size)
+        Log.d(TAG, "Queued encrypted event ${event.id.take(8)} for foreground decryption (${pendingEncryptedEvents.size} pending)")
+
+        // Show a generic notification so the user knows something arrived
+        val senderShort = event.pubKey.take(8)
+        val nm = notificationManager ?: return
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            this, 0,
+            android.content.Intent(this, io.heckel.ntfy.ui.MainActivity::class.java),
+            android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = androidx.core.app.NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(io.heckel.ntfy.ui.Colors.notificationIcon(this))
+            .setContentTitle(getString(R.string.notification_encrypted_title))
+            .setContentText(getString(R.string.notification_encrypted_text))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+        nm.notify(NOTIFICATION_ENCRYPTED_ID, notification)
     }
 
     private fun onConnectionDetailsChanged(baseUrl: String, state: ConnectionState, throwable: Throwable?, nextRetryTime: Long) {
@@ -518,6 +550,7 @@ class SubscriberService : Service() {
         private const val NOTIFICATION_RECEIVED_WAKELOCK_TIMEOUT_MILLIS = 10 * 60 * 1000L /*10 minutes*/
 
         const val NOTIFICATION_CONNECTION_ALERT_ID = 2587
+        private const val NOTIFICATION_ENCRYPTED_ID = 2588
         private const val CONNECTION_ALERT_SNOOZE_SHORT_HOURS = 1
         private const val CONNECTION_ALERT_SNOOZE_SHORT_MILLIS = CONNECTION_ALERT_SNOOZE_SHORT_HOURS * ONE_HOUR_MILLIS
         private const val CONNECTION_ALERT_SNOOZE_LONG_HOURS = 8

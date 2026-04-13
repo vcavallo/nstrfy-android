@@ -267,6 +267,11 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
             showHideConnectionErrorMenuItem(details)
         }
 
+        // React to pending encrypted events (triggers foreground Amber decrypt)
+        (application as io.heckel.ntfy.app.Application).pendingEventSignal.observe(this) { count ->
+            if (count > 0) tryDecryptPendingEvents()
+        }
+
         // Battery banner
         val batteryBanner = findViewById<View>(R.id.main_banner_battery) // Banner visibility is toggled in onResume()
         val dontAskAgainButton = findViewById<Button>(R.id.main_banner_battery_dontaskagain)
@@ -403,7 +408,132 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
         showHideConnectionErrorMenuItem(repository.getConnectionDetails())
         showHideNoNetworkBanner()
         redrawList()
+        tryDecryptPendingEvents()
     }
+
+    // Track which event we sent to Amber for foreground decryption
+    private var foregroundDecryptEvent: com.vitorpamplona.quartz.nip01Core.core.Event? = null
+
+    // Foreground decrypt launcher — processes the result from Amber and handles remaining events
+    private val amberDecryptLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val event = foregroundDecryptEvent ?: return@registerForActivityResult
+        foregroundDecryptEvent = null
+        val app = application as io.heckel.ntfy.app.Application
+
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            val plaintext = result.data?.getStringExtra("result")
+            if (plaintext != null) {
+                Log.d(TAG, "Foreground Amber decrypt succeeded for event ${event.id.take(8)}")
+                lifecycleScope.launch(Dispatchers.IO) {
+                    processDecryptedEvent(event, plaintext)
+                    app.pendingEncryptedEvents.remove(event)
+
+                    if (app.pendingEncryptedEvents.isEmpty()) {
+                        val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+                        nm.cancel(2588)
+                    }
+                    runOnUiThread {
+                        redrawList()
+                        // Process next pending event if any
+                        tryDecryptPendingEvents()
+                    }
+                }
+            }
+        } else {
+            Log.d(TAG, "Foreground Amber decrypt was rejected or cancelled")
+            // Don't retry — user explicitly rejected
+        }
+    }
+
+    private fun tryDecryptPendingEvents() {
+        val app = application as io.heckel.ntfy.app.Application
+        val pendingEvents = app.pendingEncryptedEvents
+        if (pendingEvents.isEmpty()) return
+        if (foregroundDecryptEvent != null) return // Already processing one
+        if (app.keyManager.getLoginMode() != io.heckel.ntfy.crypto.KeyManager.LoginMode.AMBER) return
+
+        // Events in the pending queue already failed ContentProvider (that's how they got here).
+        // Go straight to foreground Intent — one at a time.
+        val firstEvent = pendingEvents.peek() ?: return
+        val pubkeyHex = try { app.keyManager.getAmberPubKeyHex() } catch (e: Exception) { return }
+        val packageName = try { app.keyManager.getAmberPackageName() } catch (e: Exception) { return }
+        try {
+            foregroundDecryptEvent = firstEvent
+            val intent = com.vitorpamplona.quartz.nip55AndroidSigner.api.foreground.intents.requests
+                .Nip44DecryptRequest.assemble(
+                    firstEvent.content,
+                    firstEvent.pubKey,
+                    pubkeyHex,
+                    packageName
+                )
+            Log.d(TAG, "Launching foreground Amber decrypt for event ${firstEvent.id.take(8)}")
+            amberDecryptLauncher.launch(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not launch Amber foreground decrypt: ${e.message}")
+            foregroundDecryptEvent = null
+        }
+    }
+
+    private suspend fun processDecryptedEvent(event: com.vitorpamplona.quartz.nip01Core.core.Event, plaintext: String) {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }
+        try {
+            val payload = json.decodeFromString<io.heckel.ntfy.msg.NostrPayload>(plaintext)
+            val subscriptions = repository.getSubscriptions()
+            val subscription = subscriptions.firstOrNull { it.topic == payload.topic }
+                ?: subscriptions.firstOrNull { it.topic.isBlank() }
+                ?: return
+
+            // Check sender allowlist
+            if (subscription.whitelistEnabled) {
+                val allowedSenders = repository.getAllowedSenders(subscription.id)
+                if (event.pubKey !in allowedSenders) {
+                    Log.d(TAG, "Sender ${event.pubKey.take(8)} not in allowlist for '${subscription.topic}', discarding")
+                    return
+                }
+            }
+
+            val sequenceId = event.tags.find { it.size >= 2 && it[0] == "d" }?.get(1) ?: event.id
+            val senderNpub = try {
+                com.vitorpamplona.quartz.nip19Bech32.bech32.Bech32.encodeBytes(
+                    "npub", com.vitorpamplona.quartz.utils.Hex.decode(event.pubKey),
+                    com.vitorpamplona.quartz.nip19Bech32.bech32.Bech32.Encoding.Bech32
+                )
+            } catch (e: Exception) { event.pubKey }
+
+            val notification = io.heckel.ntfy.db.Notification(
+                id = event.id,
+                subscriptionId = subscription.id,
+                timestamp = event.createdAt,
+                sequenceId = sequenceId,
+                title = payload.title ?: "",
+                message = payload.message,
+                contentType = senderNpub,
+                encoding = "nip44",
+                notificationId = io.heckel.ntfy.util.deriveNotificationId(
+                    io.heckel.ntfy.msg.NostrConstants.NOSTR_BASE_URL, subscription.topic, sequenceId
+                ),
+                priority = when (payload.priority?.lowercase()) {
+                    "urgent", "max" -> 5; "high" -> 4; "low" -> 2; "min" -> 1; else -> 3
+                },
+                tags = payload.tags?.joinToString(",") ?: "",
+                click = payload.click ?: "",
+                icon = payload.icon?.takeIf { it.isNotBlank() }?.let { io.heckel.ntfy.db.Icon(it) },
+                actions = null,
+                attachment = null,
+                deleted = false
+            )
+            val added = repository.addNotification(notification)
+            if (added) {
+                val dispatcher = io.heckel.ntfy.msg.NotificationDispatcher(this@MainActivity, repository)
+                dispatcher.dispatch(subscription, notification)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to process decrypted event: ${e.message}")
+        }
+    }
+
 
     private fun showHideBatteryBanner(subscriptions: List<Subscription>) {
         val hasInstantSubscriptions = subscriptions.count { it.instant } > 0

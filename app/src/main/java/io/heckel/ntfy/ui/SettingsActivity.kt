@@ -177,21 +177,49 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
             // --- Nostr Identity ---
             val keyManager = (requireActivity().application as io.heckel.ntfy.app.Application).keyManager
 
-            // npub display + copy
+            // Prefs references
             val npubPrefId = context?.getString(R.string.settings_nostr_identity_npub_key) ?: return
             val npubPref: Preference? = findPreference(npubPrefId)
-            npubPref?.preferenceDataStore = object : PreferenceDataStore() { }
-            fun refreshNpubSummary() {
-                npubPref?.summary = if (keyManager.hasKey()) {
-                    val npub = keyManager.getPubKeyNpub()
-                    getString(R.string.settings_nostr_identity_npub_summary, npub)
-                } else {
-                    getString(R.string.settings_nostr_identity_npub_summary_none)
+            val importKeyPrefId = context?.getString(R.string.settings_nostr_identity_import_key) ?: return
+            val importKeyPref: Preference? = findPreference(importKeyPrefId)
+            val generateKeyPrefId = context?.getString(R.string.settings_nostr_identity_generate_key) ?: return
+            val generateKeyPref: Preference? = findPreference(generateKeyPrefId)
+            val exportKeyPrefId = context?.getString(R.string.settings_nostr_identity_export_key) ?: return
+            val exportKeyPref: Preference? = findPreference(exportKeyPrefId)
+            val amberLoginPrefId = context?.getString(R.string.settings_nostr_identity_amber_login_key) ?: return
+            val amberLoginPref: Preference? = findPreference(amberLoginPrefId)
+            val amberDisconnectPrefId = context?.getString(R.string.settings_nostr_identity_amber_disconnect_key) ?: return
+            val amberDisconnectPref: Preference? = findPreference(amberDisconnectPrefId)
+
+            // Amber login result handler
+            val amberLoginLauncher = registerForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+            ) { result ->
+                if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+                    val parseResult = com.vitorpamplona.quartz.nip55AndroidSigner.client.ExternalSignerLogin.parseResult(result.data!!)
+                    if (parseResult is com.vitorpamplona.quartz.nip55AndroidSigner.api.SignerResult.RequestAddressed.Successful) {
+                        val pubkey = parseResult.result.pubkey
+                        val packageName = parseResult.result.packageName
+                        keyManager.storeAmberLogin(pubkey, packageName)
+                        Toast.makeText(context, getString(R.string.settings_nostr_identity_amber_login_success), Toast.LENGTH_SHORT).show()
+                        refreshIdentityUI(keyManager, npubPref, importKeyPref, generateKeyPref, exportKeyPref, amberLoginPref, amberDisconnectPref)
+                        serviceManager.refresh()
+                    } else {
+                        Toast.makeText(context, getString(R.string.settings_nostr_identity_amber_login_failed), Toast.LENGTH_LONG).show()
+                    }
                 }
             }
-            refreshNpubSummary()
+
+            // Refresh UI based on login mode
+            fun refreshIdentityUILocal() {
+                refreshIdentityUI(keyManager, npubPref, importKeyPref, generateKeyPref, exportKeyPref, amberLoginPref, amberDisconnectPref)
+            }
+            refreshIdentityUILocal()
+
+            // npub display + copy
+            npubPref?.preferenceDataStore = object : PreferenceDataStore() { }
             npubPref?.onPreferenceClickListener = OnPreferenceClickListener {
-                if (keyManager.hasKey()) {
+                if (keyManager.hasIdentity()) {
                     val npub = keyManager.getPubKeyNpub()
                     copyToClipboard(requireContext(), "npub", npub)
                     Toast.makeText(context, getString(R.string.settings_nostr_identity_npub_copied), Toast.LENGTH_SHORT).show()
@@ -200,8 +228,6 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
             }
 
             // Import key
-            val importKeyPrefId = context?.getString(R.string.settings_nostr_identity_import_key) ?: return
-            val importKeyPref: Preference? = findPreference(importKeyPrefId)
             importKeyPref?.preferenceDataStore = object : PreferenceDataStore() { }
             importKeyPref?.onPreferenceClickListener = OnPreferenceClickListener {
                 val input = android.widget.EditText(requireContext())
@@ -215,7 +241,7 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                         try {
                             keyManager.storeKey(input.text.toString().trim())
                             Toast.makeText(context, getString(R.string.settings_nostr_identity_import_success), Toast.LENGTH_SHORT).show()
-                            refreshNpubSummary()
+                            refreshIdentityUILocal()
                             serviceManager.refresh()
                         } catch (e: Exception) {
                             Toast.makeText(context, getString(R.string.settings_nostr_identity_import_error), Toast.LENGTH_LONG).show()
@@ -227,8 +253,6 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
             }
 
             // Generate key
-            val generateKeyPrefId = context?.getString(R.string.settings_nostr_identity_generate_key) ?: return
-            val generateKeyPref: Preference? = findPreference(generateKeyPrefId)
             generateKeyPref?.preferenceDataStore = object : PreferenceDataStore() { }
             generateKeyPref?.onPreferenceClickListener = OnPreferenceClickListener {
                 MaterialAlertDialogBuilder(requireContext())
@@ -237,7 +261,7 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                     .setPositiveButton(android.R.string.ok) { _, _ ->
                         keyManager.generateKey()
                         Toast.makeText(context, getString(R.string.settings_nostr_identity_generate_success), Toast.LENGTH_SHORT).show()
-                        refreshNpubSummary()
+                        refreshIdentityUILocal()
                         serviceManager.refresh()
                     }
                     .setNegativeButton(android.R.string.cancel, null)
@@ -246,8 +270,6 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
             }
 
             // Export nsec
-            val exportKeyPrefId = context?.getString(R.string.settings_nostr_identity_export_key) ?: return
-            val exportKeyPref: Preference? = findPreference(exportKeyPrefId)
             exportKeyPref?.preferenceDataStore = object : PreferenceDataStore() { }
             exportKeyPref?.onPreferenceClickListener = OnPreferenceClickListener {
                 if (keyManager.hasKey()) {
@@ -257,6 +279,43 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                 } else {
                     Toast.makeText(context, getString(R.string.settings_nostr_identity_no_key), Toast.LENGTH_SHORT).show()
                 }
+                true
+            }
+
+            // Amber login
+            val amberInstalled = com.vitorpamplona.quartz.nip55AndroidSigner.client.isExternalSignerInstalled(requireContext())
+            amberLoginPref?.preferenceDataStore = object : PreferenceDataStore() { }
+            amberLoginPref?.onPreferenceClickListener = OnPreferenceClickListener {
+                if (!amberInstalled) {
+                    Toast.makeText(context, getString(R.string.settings_nostr_identity_amber_not_installed), Toast.LENGTH_LONG).show()
+                    return@OnPreferenceClickListener true
+                }
+                // Pre-login guidance dialog
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(getString(R.string.settings_nostr_identity_amber_guidance_title))
+                    .setMessage(getString(R.string.settings_nostr_identity_amber_guidance_message))
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        val permissions = listOf(
+                            com.vitorpamplona.quartz.nip55AndroidSigner.api.permission.Permission(com.vitorpamplona.quartz.nip55AndroidSigner.api.CommandType.NIP44_DECRYPT),
+                            com.vitorpamplona.quartz.nip55AndroidSigner.api.permission.Permission(com.vitorpamplona.quartz.nip55AndroidSigner.api.CommandType.NIP04_DECRYPT),
+                        )
+                        val signers: List<android.content.pm.ResolveInfo> = com.vitorpamplona.quartz.nip55AndroidSigner.client.getExternalSignersInstalled(requireContext())
+                        val packageName = signers.firstOrNull()?.activityInfo?.packageName ?: return@setPositiveButton
+                        val intent = com.vitorpamplona.quartz.nip55AndroidSigner.client.ExternalSignerLogin.createIntent(permissions, packageName)
+                        amberLoginLauncher.launch(intent)
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+                true
+            }
+
+            // Amber disconnect
+            amberDisconnectPref?.preferenceDataStore = object : PreferenceDataStore() { }
+            amberDisconnectPref?.onPreferenceClickListener = OnPreferenceClickListener {
+                keyManager.logout()
+                Toast.makeText(context, getString(R.string.settings_nostr_identity_amber_disconnected), Toast.LENGTH_SHORT).show()
+                refreshIdentityUILocal()
+                serviceManager.refresh()
                 true
             }
 
@@ -905,6 +964,59 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                 val context = context ?: return@OnPreferenceClickListener false
                 copyToClipboard(context, "ntfy version", version)
                 true
+            }
+        }
+
+        private fun refreshIdentityUI(
+            keyManager: io.heckel.ntfy.crypto.KeyManager,
+            npubPref: Preference?,
+            importKeyPref: Preference?,
+            generateKeyPref: Preference?,
+            exportKeyPref: Preference?,
+            amberLoginPref: Preference?,
+            amberDisconnectPref: Preference?
+        ) {
+            val mode = keyManager.getLoginMode()
+            val amberInstalled = com.vitorpamplona.quartz.nip55AndroidSigner.client
+                .isExternalSignerInstalled(requireContext())
+
+            // npub summary
+            npubPref?.summary = when (mode) {
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.INTERNAL -> {
+                    val npub = keyManager.getPubKeyNpub()
+                    getString(R.string.settings_nostr_identity_npub_summary, npub)
+                }
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.AMBER -> {
+                    val npub = keyManager.getPubKeyNpub()
+                    "$npub\n${getString(R.string.settings_nostr_identity_amber_connected)}"
+                }
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.NONE ->
+                    getString(R.string.settings_nostr_identity_npub_summary_none)
+            }
+
+            // Show/hide based on mode
+            when (mode) {
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.AMBER -> {
+                    importKeyPref?.isVisible = false
+                    generateKeyPref?.isVisible = false
+                    exportKeyPref?.isVisible = false
+                    amberLoginPref?.isVisible = false
+                    amberDisconnectPref?.isVisible = true
+                }
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.INTERNAL -> {
+                    importKeyPref?.isVisible = true
+                    generateKeyPref?.isVisible = true
+                    exportKeyPref?.isVisible = true
+                    amberLoginPref?.isVisible = amberInstalled
+                    amberDisconnectPref?.isVisible = false
+                }
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.NONE -> {
+                    importKeyPref?.isVisible = true
+                    generateKeyPref?.isVisible = true
+                    exportKeyPref?.isVisible = false
+                    amberLoginPref?.isVisible = amberInstalled
+                    amberDisconnectPref?.isVisible = false
+                }
             }
         }
 
