@@ -56,7 +56,33 @@ nstrfy uses nostr **kind 7741** events with NIP-40 expiration:
 
 ## Installation
 
-Download the latest APK from [Releases](https://github.com/vcavallo/nstrfy-android/releases) or install via [zapstore](https://zapstore.dev).
+Download the latest APK from [Releases](https://github.com/vcavallo/nstrfy-android/releases) or install via [zapstore](https://zapstore.dev/apps/io.nstrfy.android).
+
+## App setup and common gotchas
+
+1. Install the app, open it
+2. You'll see a banner about battery/background activity - select "Fix" and allow background activity
+3. You'll see another banner about connecting your nostr identity, tap "Open Settings"
+4. Login with Amber (or paste your nsec - not recommended) and wait for your relays to be set up
+5. Go back to the topics list and add a topic with the "+" button in the lower right
+6. Choose any topic name. 7741 events are tagged with particular topic names, and this is where you determine which "topics" you want to subscribe to
+6a. The whitelist checkbox will control whether you see ALL notifications sent to this topic, or only ones from a set of npubs you specify (this can be changed from the subscription settings page once you've subscribed to the topic)
+7. Publish a 7741 event to this topic to get a push notification
+
+### Whitelist/Encryption
+
+If you have the whitelist enabled, you won't see any notifications unless the author is on the whitelist for this topic.  
+In testing and touring the app, you might want to **subscribe to a random topic name and leave the whitelist off**. This will make it easier to push notifications to the topic to get a feel for things.  
+
+7741 events can be encrypted for a particular recipient. The whitelist still applies, however (encrypting an event to someone doesn't ensure they see it - their whitelist may be blocking you still).
+
+### Common issues
+
+- _You didn't allow background / unrestricted battery._ This will cause notifications to be quietly missed.
+- _You didn't approve Amber_. Notifications encrypted to you require Amber to decrypt. **It is highly recommended to set amber to "Allow" and "Always"** so that push notifications can be decrypted in the background.  
+- _The push notification says "you have an encrypted notification"_. If you have Amber set to "Ask" every time, you'll know that you got _some_ notification on _some_ topic, but until you open nstrfy and approve Amber, you won't be able to decrypt the message or know which topic it is in.
+- _I don't know how to send a notification!_ Use <https://github.com/vcavallo/nstrfy.sh> for now, or wait a little until we add authoring to this app.
+- _I don't know what to do with this!_ Send yourself encrypted push notifications about your daily backups, or reminders to drink water every 4 minutes. Come up with a newsletter stuffed with alpha and sell access to it (encrypt 1 notification per paid recipient). Organize a protest and send live tactics updates to the participants. Petition your favorite blog author to integrate nstrfy updates along with their RSS feed updates. Come up with your own ideas and post about them on nostr.
 
 ## Building
 
@@ -87,10 +113,11 @@ nstrfy is a fork of [ntfy-android](https://github.com/binwiederhier/ntfy-android
 | Firebase Cloud Messaging | Persistent WebSocket to relays |
 
 Key dependencies:
+
 - [Quartz](https://github.com/vitorpamplona/amethyst) (`com.vitorpamplona.quartz:quartz-android`) -- nostr protocol library from Amethyst (NIP-44, NIP-55, relay client)
 - [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) -- JSON parsing for notification payloads
 - [AndroidX Security](https://developer.android.com/jetpack/androidx/releases/security) -- encrypted key storage (for nsec mode)
 
 ## License
 
-Based on [ntfy-android](https://github.com/binwiederhier/ntfy-android) by [Philipp C. Heckel](https://heckel.io), distributed under the [Apache License 2.0](LICENSE).
+WTFPL – Do What the Fuck You Want to Public License - <https://www.wtfpl.net/>
