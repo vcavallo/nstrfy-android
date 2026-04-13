@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew assembleDebug)",
+      "Read(//usr/lib/**)",
+      "Read(//opt/**)",
+      "Bash(JAVA_HOME=/nix/store/n7xgy8aj7dvnz3hxdgc2pb8p6j1gy31m-openjdk-headless-17.0.18+8/lib/openjdk ./gradlew assembleDebug)",
+      "Bash(nix-shell -p androidenv.androidPkgs.androidsdk --run 'echo $ANDROID_HOME')",
+      "Bash(nix-shell -p android-tools --run 'echo $ANDROID_SDK_ROOT')",
+      "Bash(nix develop:*)",
+      "Bash(jar tf:*)",
+      "Bash(ls:*)",
+      "Bash(python3 -m http.server 8080)",
+      "Bash(awk '{print $1}')",
+      "Bash(nix-shell -p python3 --run \"which python3\")",
+      "Bash(nix-shell -p python3 --run \"python3 -m http.server 8222\")",
+      "Bash(nix-shell -p python3 --run \"python3 -m http.server 8222 &\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8222/app-debug.apk)",
+      "Bash(nak key:*)",
+      "Bash(nak encode:*)",
+      "Bash(./nstrfy.sh send:*)",
+      "Bash(bash:*)"
+    ]
+  }
+}

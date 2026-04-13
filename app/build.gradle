@@ -6,21 +6,26 @@ plugins {
 
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
-apply plugin: 'com.google.gms.google-services'
+apply plugin: 'kotlin-parcelize'
+apply plugin: 'org.jetbrains.kotlin.plugin.serialization'
 
 android {
     namespace "io.heckel.ntfy"
     compileSdkVersion 36
 
     defaultConfig {
-        applicationId "io.heckel.ntfy"
+        applicationId "io.nstrfy.android"
         minSdkVersion 26
         targetSdkVersion 36
 
-        versionCode 61
-        versionName "1.25.0"
+        versionCode 1
+        versionName "0.1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField 'boolean', 'FIREBASE_AVAILABLE', 'false'
+        buildConfigField 'boolean', 'RATE_APP_AVAILABLE', 'false'
+        buildConfigField 'boolean', 'PAYMENT_LINKS_AVAILABLE', 'false'
 
         /* Required for Room schema migrations */
         ksp {
@@ -50,20 +55,6 @@ android {
         }
     }
 
-    flavorDimensions "store"
-    productFlavors {
-        play {
-            buildConfigField 'boolean', 'FIREBASE_AVAILABLE', 'true'
-            buildConfigField 'boolean', 'RATE_APP_AVAILABLE', 'true'
-            buildConfigField 'boolean', 'PAYMENT_LINKS_AVAILABLE', 'false' // Google Play Payments Policy, see #1463
-        }
-        fdroid {
-            buildConfigField 'boolean', 'FIREBASE_AVAILABLE', 'false'
-            buildConfigField 'boolean', 'RATE_APP_AVAILABLE', 'false'
-            buildConfigField 'boolean', 'PAYMENT_LINKS_AVAILABLE', 'true'
-        }
-    }
-
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -77,13 +68,6 @@ android {
             ]
         }
     }
-}
-
-// Disables GoogleServices tasks for F-Droid variant
-android.applicationVariants.all { variant ->
-    def shouldProcessGoogleServices = variant.flavorName == "play"
-    def googleTask = tasks.named("process${variant.name.capitalize()}GoogleServices").get()
-    googleTask.enabled = shouldProcessGoogleServices
 }
 
 dependencies {
@@ -106,10 +90,16 @@ dependencies {
     implementation "androidx.room:room-ktx:$room_version"
 
     // OkHttp (HTTP library)
-    implementation 'com.squareup.okhttp3:okhttp:5.3.2'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 
-    // Firebase, sigh ... (only Google Play)
-    playImplementation 'com.google.firebase:firebase-messaging:25.0.1'
+    // Nostr protocol (Amethyst's Quartz library)
+    implementation 'com.vitorpamplona.quartz:quartz-android:1.06.0'
+
+    // JSON serialization (for nostr payload parsing)
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1'
+
+    // Android Keystore-backed encrypted storage (for nsec)
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
 
     // RecyclerView
     implementation "androidx.recyclerview:recyclerview:1.4.0"

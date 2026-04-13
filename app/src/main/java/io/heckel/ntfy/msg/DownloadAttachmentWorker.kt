@@ -84,7 +84,7 @@ class DownloadAttachmentWorker(private val context: Context, params: WorkerParam
                 val outFile = resolver.openOutputStream(uri) ?: throw Exception("Cannot open output stream")
                 val downloadLimit = getDownloadLimit(userAction)
                 outFile.use { fileOut ->
-                    val fileIn = response.body.byteStream()
+                    val fileIn = response.body!!.byteStream()
                     val buffer = ByteArray(BUFFER_SIZE)
                     var bytes = fileIn.read(buffer)
                     var lastProgress = 0L

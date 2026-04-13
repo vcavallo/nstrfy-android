@@ -1,28 +1,81 @@
-# ntfy Android App
-This is the Android app for [ntfy](https://github.com/binwiederhier/ntfy) ([ntfy.sh](https://ntfy.sh)). You can find the app in [F-Droid](https://f-droid.org/packages/io.heckel.ntfy/) or the [Play Store](https://play.google.com/store/apps/details?id=io.heckel.ntfy), 
-or as .apk files on the [GitHub releases page](https://github.com/binwiederhier/ntfy-android/releases).
+# nstrfy - Nostr Push Notifications for Android
 
-If you're downloading the APKs from GitHub, they are signed with a certificate with the following SHA-256 fingerprint: `6e145d7ae685eff75468e5067e03a6c3645453343e4e181dac8b6b17ff67489d`. You can also query the DNS TXT records for `ntfy.sh` to find this fingerprint.
+nstrfy is a native Android app that receives push notifications over [nostr](https://nostr.com). It listens for [kind 30078](https://github.com/nostr-protocol/nips) events on configurable relays and displays them as native Android notifications with full priority, muting, and action support.
 
-## Build
-For up-to-date building instructions, please see the [official docs](https://docs.ntfy.sh/develop/#android-app).
+Think [ntfy](https://ntfy.sh), but decentralized -- no server required, just nostr relays.
 
-## Translations
-We're using [Weblate](https://hosted.weblate.org/projects/ntfy/) to translate the ntfy Android app. We'd love your participation.
+## How it works
 
-<a href="https://hosted.weblate.org/engage/ntfy/">
-<img src="https://hosted.weblate.org/widgets/ntfy/-/multi-blue.svg" alt="Translation status" />
-</a>
+1. Generate or import a nostr keypair in the app
+2. Add one or more relays (e.g. `wss://nos.lol`)
+3. Subscribe to a topic (e.g. `alerts`, `deploys`, `home`)
+4. Send notifications from any machine using [nstrfy.sh](https://github.com/vcavallo/nstrfy.sh):
+
+```bash
+nstrfy.sh send \
+  --to npub1abc...def \
+  --title "Deploy complete" \
+  --message "v2.4.1 is live on production" \
+  --priority high \
+  --topic deploys \
+  --relays wss://nos.lol
+```
+
+The app receives the event, decrypts the NIP-44 encrypted payload, matches the topic, and shows a native Android notification.
+
+## Protocol
+
+nstrfy uses nostr kind 30078 events following the [nstrfy protocol](https://github.com/vcavallo/nstrfy.sh/blob/main/NIP-DRAFT.md):
+
+- **Encryption**: NIP-44 (primary), NIP-04 (fallback), or plaintext for public topics
+- **Routing**: `#p` tag for inbox delivery to a specific pubkey; topic matching is done client-side from the decrypted payload
+- **Payload**: JSON with `title`, `message`, `priority`, `topic`, `tags`, `click`, `icon`, `actions`
+- **Priority**: `urgent`/`max`, `high`, `default`, `low`, `min` -- mapped to Android notification channels
+- **Spam control**: Per-topic sender allowlists (npub whitelist). Nostr's namespace is global, so client-side filtering is the only protection.
+
+## Features
+
+- **Persistent relay connections** via foreground service with automatic reconnection
+- **Topic-based subscriptions** with per-topic sender allowlists
+- **Inbox mode** (events tagged to your pubkey) and **public mode** (events from allowlisted authors)
+- **Full notification support**: priority levels, muting, auto-delete, actions, icons
+- **Secure key storage** via Android Keystore (EncryptedSharedPreferences)
+- **Import/export keys** (nsec bech32 or hex)
+- **Multiple relay support** with per-relay enable/disable
+
+## Building
+
+Requires JDK 17 and Android SDK. If you use Nix:
+
+```bash
+nix develop /path/to/NarChives --command bash -c "./gradlew assembleDebug"
+```
+
+Or with a standard Android development setup:
+
+```bash
+./gradlew assembleDebug
+```
+
+The APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
+
+## Architecture
+
+nstrfy is a fork of [ntfy-android](https://github.com/binwiederhier/ntfy-android) with the HTTP transport layer replaced by nostr:
+
+| ntfy | nstrfy |
+|------|--------|
+| WsConnection / JsonConnection | NostrConnection (Quartz library) |
+| ntfy server API | nostr relays (kind 30078) |
+| HTTP auth (user/password) | nostr keypair (nsec/npub) |
+| Server-side topic routing | Client-side topic matching after decryption |
+| Firebase Cloud Messaging | Persistent WebSocket to relays |
+
+Key dependencies:
+- [Quartz](https://github.com/nicegamer7/quartz-android) (`com.vitorpamplona.quartz:quartz-android`) -- nostr protocol library from Amethyst
+- [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) -- JSON parsing for notification payloads
+- [AndroidX Security](https://developer.android.com/jetpack/androidx/releases/security) -- encrypted key storage
 
 ## License
-Made with ❤️ by [Philipp C. Heckel](https://heckel.io), distributed under the [Apache License 2.0](LICENSE).
 
-Thank you to these fantastic resources:
-* [RecyclerViewKotlin](https://github.com/android/views-widgets-samples/tree/main/RecyclerViewKotlin) (Apache 2.0)
-* [Just another Hacker News Android client](https://github.com/manoamaro/another-hacker-news-client) (MIT)
-* [Android Room with a View](https://github.com/googlecodelabs/android-room-with-a-view/tree/kotlin) (Apache 2.0)
-* [Firebase Messaging Example](https://github.com/firebase/quickstart-android/blob/7147f60451b3eeaaa05fc31208ffb67e2df73c3c/messaging/app/src/main/java/com/google/firebase/quickstart/fcm/kotlin/MyFirebaseMessagingService.kt) (Apache 2.0)
-* [Designing a logo with Inkscape](https://www.youtube.com/watch?v=r2Kv61cd2P4)
-* [Foreground service](https://robertohuertas.com/2019/06/29/android_foreground_services/)
-* [github/gemoji](https://github.com/github/gemoji) (MIT) for as data source for an up-to-date [emoji.json](https://raw.githubusercontent.com/github/gemoji/master/db/emoji.json) file
-* [emoji-java](https://github.com/vdurmont/emoji-java) (MIT) has been stripped and inlined to use the emoji.json file
+Based on [ntfy-android](https://github.com/binwiederhier/ntfy-android) by [Philipp C. Heckel](https://heckel.io), distributed under the [Apache License 2.0](LICENSE).

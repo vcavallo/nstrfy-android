@@ -86,7 +86,7 @@ class DownloadIconWorker(private val context: Context, params: WorkerParameters)
                 val outFile = resolver.openOutputStream(uri) ?: throw Exception("Cannot open output stream")
                 val downloadLimit = getDownloadLimit()
                 outFile.use { fileOut ->
-                    val fileIn = response.body.byteStream()
+                    val fileIn = response.body!!.byteStream()
                     val buffer = ByteArray(BUFFER_SIZE)
                     var bytes = fileIn.read(buffer)
                     while (bytes >= 0) {

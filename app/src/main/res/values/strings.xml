@@ -328,6 +328,39 @@
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>
+
+    <!-- Settings: Nostr Identity -->
+    <string name="settings_nostr_identity_header">Nostr Identity</string>
+    <string name="settings_nostr_identity_npub_title">Public key</string>
+    <string name="settings_nostr_identity_npub_summary_none">No key configured</string>
+    <string name="settings_nostr_identity_npub_summary">%1$s (tap to copy)</string>
+    <string name="settings_nostr_identity_import_title">Import key</string>
+    <string name="settings_nostr_identity_import_summary">Paste nsec or hex private key</string>
+    <string name="settings_nostr_identity_generate_title">Generate new key</string>
+    <string name="settings_nostr_identity_generate_summary">Create a fresh random keypair</string>
+    <string name="settings_nostr_identity_export_title">Export private key</string>
+    <string name="settings_nostr_identity_export_summary">Copy nsec to clipboard (handle with care!)</string>
+    <string name="settings_nostr_identity_import_dialog_title">Import key</string>
+    <string name="settings_nostr_identity_import_dialog_message">Paste your nsec (bech32) or 64-char hex private key:</string>
+    <string name="settings_nostr_identity_import_success">Key imported successfully</string>
+    <string name="settings_nostr_identity_import_error">Invalid key: must be nsec1… or 64-char hex</string>
+    <string name="settings_nostr_identity_generate_dialog_title">Generate new key?</string>
+    <string name="settings_nostr_identity_generate_dialog_message">This will replace any existing key. Make sure you have a backup of your current key before proceeding.</string>
+    <string name="settings_nostr_identity_generate_success">New keypair generated</string>
+    <string name="settings_nostr_identity_export_success">nsec copied to clipboard</string>
+    <string name="settings_nostr_identity_npub_copied">npub copied to clipboard</string>
+    <string name="settings_nostr_identity_no_key">No key configured</string>
+
+    <!-- Settings: Relays -->
+    <string name="settings_relays_header">Relays</string>
+    <string name="settings_relays_manage_title">Manage relays</string>
+    <string name="settings_relays_manage_summary">Add or remove nostr relays</string>
+    <string name="settings_relays_add_dialog_title">Add relay</string>
+    <string name="settings_relays_add_dialog_message">Enter relay WebSocket URL (wss://…):</string>
+    <string name="settings_relays_none">No relays configured</string>
+    <string name="settings_relays_added">Relay added</string>
+    <string name="settings_relays_removed">Relay removed</string>
+
     <string name="settings_notifications_header">Notifications</string>
     <string name="settings_notifications_muted_until_title">Mute notifications</string>
     <string name="settings_notifications_muted_until_show_all">Showing all notifications</string>

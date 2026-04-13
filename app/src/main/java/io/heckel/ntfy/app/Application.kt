@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.ConnectivityManager
 import android.net.Network
 import com.google.android.material.color.DynamicColors
+import io.heckel.ntfy.crypto.KeyManager
 import io.heckel.ntfy.db.Repository
 import io.heckel.ntfy.service.SubscriberServiceManager
 import io.heckel.ntfy.util.Log
@@ -14,6 +15,8 @@ import kotlinx.coroutines.launch
 
 class Application : Application() {
     val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    val keyManager by lazy { KeyManager(applicationContext) }
 
     val repository by lazy {
         val repository = Repository.getInstance(applicationContext)

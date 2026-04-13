@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name='ntfy'
+rootProject.name='nstrfy'
 include ':app'
