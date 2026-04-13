@@ -252,7 +252,15 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                             keyManager.storeKey(input.text.toString().trim())
                             Toast.makeText(context, getString(R.string.settings_nostr_identity_import_success), Toast.LENGTH_SHORT).show()
                             refreshIdentityUILocal()
-                            serviceManager.refresh()
+                            val pubkeyHex = try { keyManager.getPubKeyHex() } catch (e: Exception) { null }
+                            if (pubkeyHex != null) {
+                                fetchAndAddUserRelays(pubkeyHex) {
+                                    onRelaysUpdated?.invoke()
+                                    serviceManager.refresh()
+                                }
+                            } else {
+                                serviceManager.refresh()
+                            }
                         } catch (e: Exception) {
                             Toast.makeText(context, getString(R.string.settings_nostr_identity_import_error), Toast.LENGTH_LONG).show()
                         }

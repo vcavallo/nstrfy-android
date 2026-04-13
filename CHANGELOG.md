@@ -14,6 +14,8 @@
 
 - Author npub on notifications
 - Amber integration for addressed events
+- Banner prompting npub login
+- Use profile's read & read+write relays
 
 ## v0.1.0
 

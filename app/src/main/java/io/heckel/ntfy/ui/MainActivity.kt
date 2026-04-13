@@ -407,6 +407,7 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
         showHideNotificationMenuItems()
         showHideConnectionErrorMenuItem(repository.getConnectionDetails())
         showHideNoNetworkBanner()
+        showHideIdentityBanner()
         redrawList()
         tryDecryptPendingEvents()
     }
@@ -577,6 +578,19 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
             wsReconnectBanner.visibility = if (showBanner) View.VISIBLE else View.GONE
         } else {
             wsReconnectBanner.visibility = View.GONE
+        }
+    }
+
+    private fun showHideIdentityBanner() {
+        val app = application as io.heckel.ntfy.app.Application
+        val hasIdentity = app.keyManager.hasIdentity()
+        val identityBanner = findViewById<View>(R.id.main_banner_identity)
+        identityBanner.visibility = if (hasIdentity) View.GONE else View.VISIBLE
+        if (!hasIdentity) {
+            val settingsButton = findViewById<View>(R.id.main_banner_identity_button)
+            settingsButton.setOnClickListener {
+                startActivity(android.content.Intent(this, io.heckel.ntfy.ui.SettingsActivity::class.java))
+            }
         }
     }
 

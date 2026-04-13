@@ -232,6 +232,53 @@
             </androidx.constraintlayout.widget.ConstraintLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                style="@style/BannerCardStyle"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toBottomOf="@+id/main_banner_websocket_reconnect"
+                android:id="@+id/main_banner_identity"
+                android:visibility="gone">
+            <androidx.constraintlayout.widget.ConstraintLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:elevation="5dp">
+                <ImageView
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        app:srcCompat="@drawable/ic_notification"
+                        android:id="@+id/main_banner_identity_image"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="@+id/main_banner_identity_text"
+                        app:layout_constraintEnd_toStartOf="@id/main_banner_identity_text"
+                        app:layout_constraintBottom_toBottomOf="@+id/main_banner_identity_text"
+                        android:layout_marginStart="15dp"/>
+                <TextView
+                        android:id="@+id/main_banner_identity_text"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_banner_identity_text"
+                        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                        android:layout_marginEnd="15dp"
+                        android:layout_marginTop="15dp"
+                        app:layout_constraintStart_toEndOf="@+id/main_banner_identity_image"
+                        android:layout_marginStart="10dp"/>
+                <com.google.android.material.button.MaterialButton
+                        android:id="@+id/main_banner_identity_button"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_banner_identity_button"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/main_banner_identity_text"
+                        android:layout_marginEnd="15dp"/>
+            </androidx.constraintlayout.widget.ConstraintLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <FrameLayout
             android:id="@+id/main_banner_no_network"
             android:layout_width="match_parent"
@@ -240,7 +287,7 @@
             android:visibility="gone"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/main_banner_websocket_reconnect">
+            app:layout_constraintTop_toBottomOf="@id/main_banner_identity">
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
