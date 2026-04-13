@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## unreleased
+## v0.2.0
 
 ### Changed
 
@@ -11,6 +11,7 @@
 ### Added
 
 - author npub on notifications
+- public/private indicator
 
 ## v0.1.0
 
