@@ -242,9 +242,17 @@ class NostrConnection(
                     }
                     notificationListener(parsed.subscription, parsed.notification)
                 } else {
-                    // ContentProvider didn't work — queue for foreground
-                    Log.d(TAG, "(gid=$globalId): Amber background decrypt failed, queuing for foreground")
-                    pendingEventListener?.invoke(event)
+                    // ContentProvider didn't work — pre-check sender against allowlists
+                    // before queuing. If ALL subscriptions with whitelists exclude this sender,
+                    // don't bother queuing (prevents spam from unknown senders).
+                    val allAllowedSenders = try { repository.getAllAllowedSenders() } catch (e: Exception) { emptyList() }
+                    val anySubsWithoutWhitelist = subscriptions.any { !it.whitelistEnabled }
+                    if (allAllowedSenders.contains(senderPubkey) || anySubsWithoutWhitelist) {
+                        Log.d(TAG, "(gid=$globalId): Amber background decrypt failed, queuing for foreground")
+                        pendingEventListener?.invoke(event)
+                    } else {
+                        Log.d(TAG, "(gid=$globalId): Sender $senderPubkey not in any allowlist, discarding")
+                    }
                 }
                 return@launch
             }

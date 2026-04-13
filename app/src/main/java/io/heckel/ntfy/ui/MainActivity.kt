@@ -485,6 +485,15 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
                 ?: subscriptions.firstOrNull { it.topic.isBlank() }
                 ?: return
 
+            // Check sender allowlist
+            if (subscription.whitelistEnabled) {
+                val allowedSenders = repository.getAllowedSenders(subscription.id)
+                if (event.pubKey !in allowedSenders) {
+                    Log.d(TAG, "Sender ${event.pubKey.take(8)} not in allowlist for '${subscription.topic}', discarding")
+                    return
+                }
+            }
+
             val sequenceId = event.tags.find { it.size >= 2 && it[0] == "d" }?.get(1) ?: event.id
             val senderNpub = try {
                 com.vitorpamplona.quartz.nip19Bech32.bech32.Bech32.encodeBytes(
