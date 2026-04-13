@@ -161,6 +161,7 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
         private lateinit var repository: Repository
         private lateinit var serviceManager: SubscriberServiceManager
         private var autoDownloadSelection = AUTO_DOWNLOAD_SELECTION_NOT_SET
+        private var onRelaysUpdated: (() -> Unit)? = null
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.main_preferences, rootKey)
@@ -177,21 +178,58 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
             // --- Nostr Identity ---
             val keyManager = (requireActivity().application as io.heckel.ntfy.app.Application).keyManager
 
-            // npub display + copy
+            // Prefs references
             val npubPrefId = context?.getString(R.string.settings_nostr_identity_npub_key) ?: return
             val npubPref: Preference? = findPreference(npubPrefId)
-            npubPref?.preferenceDataStore = object : PreferenceDataStore() { }
-            fun refreshNpubSummary() {
-                npubPref?.summary = if (keyManager.hasKey()) {
-                    val npub = keyManager.getPubKeyNpub()
-                    getString(R.string.settings_nostr_identity_npub_summary, npub)
-                } else {
-                    getString(R.string.settings_nostr_identity_npub_summary_none)
+            val importKeyPrefId = context?.getString(R.string.settings_nostr_identity_import_key) ?: return
+            val importKeyPref: Preference? = findPreference(importKeyPrefId)
+            val generateKeyPrefId = context?.getString(R.string.settings_nostr_identity_generate_key) ?: return
+            val generateKeyPref: Preference? = findPreference(generateKeyPrefId)
+            val exportKeyPrefId = context?.getString(R.string.settings_nostr_identity_export_key) ?: return
+            val exportKeyPref: Preference? = findPreference(exportKeyPrefId)
+            val amberLoginPrefId = context?.getString(R.string.settings_nostr_identity_amber_login_key) ?: return
+            val amberLoginPref: Preference? = findPreference(amberLoginPrefId)
+            val amberDisconnectPrefId = context?.getString(R.string.settings_nostr_identity_amber_disconnect_key) ?: return
+            val amberDisconnectPref: Preference? = findPreference(amberDisconnectPrefId)
+
+            // Amber login result handler
+            val amberLoginLauncher = registerForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+            ) { result ->
+                if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+                    val parseResult = com.vitorpamplona.quartz.nip55AndroidSigner.client.ExternalSignerLogin.parseResult(result.data!!)
+                    if (parseResult is com.vitorpamplona.quartz.nip55AndroidSigner.api.SignerResult.RequestAddressed.Successful) {
+                        val pubkey = parseResult.result.pubkey
+                        val packageName = parseResult.result.packageName
+                        keyManager.storeAmberLogin(pubkey, packageName)
+                        Toast.makeText(context, getString(R.string.settings_nostr_identity_amber_login_success), Toast.LENGTH_SHORT).show()
+                        refreshIdentityUI(keyManager, npubPref, importKeyPref, generateKeyPref, exportKeyPref, amberLoginPref, amberDisconnectPref)
+                        // Fetch user's relay list (NIP-65 kind 10002) and add to our relays
+                        val pubkeyHex = try { keyManager.getPubKeyHex() } catch (e: Exception) { null }
+                        if (pubkeyHex != null) {
+                            fetchAndAddUserRelays(pubkeyHex) {
+                                onRelaysUpdated?.invoke()
+                                serviceManager.refresh()
+                            }
+                        } else {
+                            serviceManager.refresh()
+                        }
+                    } else {
+                        Toast.makeText(context, getString(R.string.settings_nostr_identity_amber_login_failed), Toast.LENGTH_LONG).show()
+                    }
                 }
             }
-            refreshNpubSummary()
+
+            // Refresh UI based on login mode
+            fun refreshIdentityUILocal() {
+                refreshIdentityUI(keyManager, npubPref, importKeyPref, generateKeyPref, exportKeyPref, amberLoginPref, amberDisconnectPref)
+            }
+            refreshIdentityUILocal()
+
+            // npub display + copy
+            npubPref?.preferenceDataStore = object : PreferenceDataStore() { }
             npubPref?.onPreferenceClickListener = OnPreferenceClickListener {
-                if (keyManager.hasKey()) {
+                if (keyManager.hasIdentity()) {
                     val npub = keyManager.getPubKeyNpub()
                     copyToClipboard(requireContext(), "npub", npub)
                     Toast.makeText(context, getString(R.string.settings_nostr_identity_npub_copied), Toast.LENGTH_SHORT).show()
@@ -200,8 +238,6 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
             }
 
             // Import key
-            val importKeyPrefId = context?.getString(R.string.settings_nostr_identity_import_key) ?: return
-            val importKeyPref: Preference? = findPreference(importKeyPrefId)
             importKeyPref?.preferenceDataStore = object : PreferenceDataStore() { }
             importKeyPref?.onPreferenceClickListener = OnPreferenceClickListener {
                 val input = android.widget.EditText(requireContext())
@@ -215,8 +251,16 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                         try {
                             keyManager.storeKey(input.text.toString().trim())
                             Toast.makeText(context, getString(R.string.settings_nostr_identity_import_success), Toast.LENGTH_SHORT).show()
-                            refreshNpubSummary()
-                            serviceManager.refresh()
+                            refreshIdentityUILocal()
+                            val pubkeyHex = try { keyManager.getPubKeyHex() } catch (e: Exception) { null }
+                            if (pubkeyHex != null) {
+                                fetchAndAddUserRelays(pubkeyHex) {
+                                    onRelaysUpdated?.invoke()
+                                    serviceManager.refresh()
+                                }
+                            } else {
+                                serviceManager.refresh()
+                            }
                         } catch (e: Exception) {
                             Toast.makeText(context, getString(R.string.settings_nostr_identity_import_error), Toast.LENGTH_LONG).show()
                         }
@@ -227,8 +271,6 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
             }
 
             // Generate key
-            val generateKeyPrefId = context?.getString(R.string.settings_nostr_identity_generate_key) ?: return
-            val generateKeyPref: Preference? = findPreference(generateKeyPrefId)
             generateKeyPref?.preferenceDataStore = object : PreferenceDataStore() { }
             generateKeyPref?.onPreferenceClickListener = OnPreferenceClickListener {
                 MaterialAlertDialogBuilder(requireContext())
@@ -237,7 +279,7 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                     .setPositiveButton(android.R.string.ok) { _, _ ->
                         keyManager.generateKey()
                         Toast.makeText(context, getString(R.string.settings_nostr_identity_generate_success), Toast.LENGTH_SHORT).show()
-                        refreshNpubSummary()
+                        refreshIdentityUILocal()
                         serviceManager.refresh()
                     }
                     .setNegativeButton(android.R.string.cancel, null)
@@ -246,8 +288,6 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
             }
 
             // Export nsec
-            val exportKeyPrefId = context?.getString(R.string.settings_nostr_identity_export_key) ?: return
-            val exportKeyPref: Preference? = findPreference(exportKeyPrefId)
             exportKeyPref?.preferenceDataStore = object : PreferenceDataStore() { }
             exportKeyPref?.onPreferenceClickListener = OnPreferenceClickListener {
                 if (keyManager.hasKey()) {
@@ -257,6 +297,43 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                 } else {
                     Toast.makeText(context, getString(R.string.settings_nostr_identity_no_key), Toast.LENGTH_SHORT).show()
                 }
+                true
+            }
+
+            // Amber login
+            val amberInstalled = com.vitorpamplona.quartz.nip55AndroidSigner.client.isExternalSignerInstalled(requireContext())
+            amberLoginPref?.preferenceDataStore = object : PreferenceDataStore() { }
+            amberLoginPref?.onPreferenceClickListener = OnPreferenceClickListener {
+                if (!amberInstalled) {
+                    Toast.makeText(context, getString(R.string.settings_nostr_identity_amber_not_installed), Toast.LENGTH_LONG).show()
+                    return@OnPreferenceClickListener true
+                }
+                // Pre-login guidance dialog
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(getString(R.string.settings_nostr_identity_amber_guidance_title))
+                    .setMessage(getString(R.string.settings_nostr_identity_amber_guidance_message))
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        val permissions = listOf(
+                            com.vitorpamplona.quartz.nip55AndroidSigner.api.permission.Permission(com.vitorpamplona.quartz.nip55AndroidSigner.api.CommandType.NIP44_DECRYPT),
+                            com.vitorpamplona.quartz.nip55AndroidSigner.api.permission.Permission(com.vitorpamplona.quartz.nip55AndroidSigner.api.CommandType.NIP04_DECRYPT),
+                        )
+                        val signers: List<android.content.pm.ResolveInfo> = com.vitorpamplona.quartz.nip55AndroidSigner.client.getExternalSignersInstalled(requireContext())
+                        val packageName = signers.firstOrNull()?.activityInfo?.packageName ?: return@setPositiveButton
+                        val intent = com.vitorpamplona.quartz.nip55AndroidSigner.client.ExternalSignerLogin.createIntent(permissions, packageName)
+                        amberLoginLauncher.launch(intent)
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+                true
+            }
+
+            // Amber disconnect
+            amberDisconnectPref?.preferenceDataStore = object : PreferenceDataStore() { }
+            amberDisconnectPref?.onPreferenceClickListener = OnPreferenceClickListener {
+                keyManager.logout()
+                Toast.makeText(context, getString(R.string.settings_nostr_identity_amber_disconnected), Toast.LENGTH_SHORT).show()
+                refreshIdentityUILocal()
+                serviceManager.refresh()
                 true
             }
 
@@ -279,6 +356,7 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                 }
             }
             refreshRelaySummary()
+            onRelaysUpdated = { refreshRelaySummary() }
             relaysPref?.onPreferenceClickListener = OnPreferenceClickListener {
                 lifecycleScope.launch(Dispatchers.IO) {
                     val relays = repository.getAllRelays()
@@ -905,6 +983,146 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                 val context = context ?: return@OnPreferenceClickListener false
                 copyToClipboard(context, "ntfy version", version)
                 true
+            }
+        }
+
+        private fun fetchAndAddUserRelays(pubkeyHex: String, onComplete: () -> Unit) {
+            val ctx = context ?: return
+            val progressDialog = MaterialAlertDialogBuilder(ctx)
+                .setTitle("Setting up relays")
+                .setMessage("Fetching your relay list from nostr...")
+                .setCancelable(false)
+                .create()
+            progressDialog.show()
+
+            lifecycleScope.launch(Dispatchers.IO) {
+                val repository = Repository.getInstance(requireActivity())
+                val bootstrapRelays = listOf("wss://purplepag.es", "wss://relay.damus.io", "wss://nos.lol")
+                val relayUrls = mutableSetOf<String>()
+
+                for (bootstrapRelay in bootstrapRelays) {
+                    if (relayUrls.isNotEmpty()) break
+                    try {
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                            .build()
+                        val request = okhttp3.Request.Builder().url(bootstrapRelay).build()
+                        val latch = java.util.concurrent.CountDownLatch(1)
+                        client.newWebSocket(request, object : okhttp3.WebSocketListener() {
+                            override fun onOpen(ws: okhttp3.WebSocket, response: okhttp3.Response) {
+                                val req = """["REQ","relay-list",{"kinds":[10002],"authors":["$pubkeyHex"],"limit":1}]"""
+                                ws.send(req)
+                            }
+                            override fun onMessage(ws: okhttp3.WebSocket, text: String) {
+                                try {
+                                    val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }
+                                    val arr = json.parseToJsonElement(text)
+                                    if (arr is kotlinx.serialization.json.JsonArray && arr.size >= 3) {
+                                        val type = arr[0].toString().trim('"')
+                                        if (type == "EVENT") {
+                                            val eventObj = arr[2] as? kotlinx.serialization.json.JsonObject ?: return
+                                            val tags = eventObj["tags"] as? kotlinx.serialization.json.JsonArray ?: return
+                                            for (tag in tags) {
+                                                val tagArr = tag as? kotlinx.serialization.json.JsonArray ?: continue
+                                                if (tagArr.size >= 2 && tagArr[0].toString().trim('"') == "r") {
+                                                    val url = tagArr[1].toString().trim('"')
+                                                    val marker = if (tagArr.size >= 3) tagArr[2].toString().trim('"') else ""
+                                                    if (marker != "write") {
+                                                        relayUrls.add(url)
+                                                    }
+                                                }
+                                            }
+                                        } else if (type == "EOSE") {
+                                            ws.close(1000, "done")
+                                            latch.countDown()
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Relay list parse error: ${e.message}")
+                                }
+                            }
+                            override fun onFailure(ws: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) {
+                                latch.countDown()
+                            }
+                        })
+                        latch.await(15, java.util.concurrent.TimeUnit.SECONDS)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to fetch relay list from $bootstrapRelay: ${e.message}")
+                    }
+                }
+
+                var added = 0
+                for (url in relayUrls) {
+                    try {
+                        repository.addRelay(url)
+                        added++
+                    } catch (e: Exception) { }
+                }
+                Log.d(TAG, "Added $added relays from NIP-65 (${relayUrls.size} found)")
+
+                activity?.runOnUiThread {
+                    progressDialog.dismiss()
+                    if (relayUrls.isNotEmpty()) {
+                        Toast.makeText(context, "Added ${relayUrls.size} relays from your relay list", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "No relay list found — using defaults", Toast.LENGTH_SHORT).show()
+                    }
+                    onComplete()
+                }
+            }
+        }
+
+        private fun refreshIdentityUI(
+            keyManager: io.heckel.ntfy.crypto.KeyManager,
+            npubPref: Preference?,
+            importKeyPref: Preference?,
+            generateKeyPref: Preference?,
+            exportKeyPref: Preference?,
+            amberLoginPref: Preference?,
+            amberDisconnectPref: Preference?
+        ) {
+            val mode = keyManager.getLoginMode()
+            val amberInstalled = com.vitorpamplona.quartz.nip55AndroidSigner.client
+                .isExternalSignerInstalled(requireContext())
+
+            // npub summary
+            npubPref?.summary = when (mode) {
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.INTERNAL -> {
+                    val npub = keyManager.getPubKeyNpub()
+                    getString(R.string.settings_nostr_identity_npub_summary, npub)
+                }
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.AMBER -> {
+                    val npub = keyManager.getPubKeyNpub()
+                    "$npub\n${getString(R.string.settings_nostr_identity_amber_connected)}"
+                }
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.NONE ->
+                    getString(R.string.settings_nostr_identity_npub_summary_none)
+            }
+
+            // Show/hide based on mode
+            when (mode) {
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.AMBER -> {
+                    importKeyPref?.isVisible = false
+                    generateKeyPref?.isVisible = false
+                    exportKeyPref?.isVisible = false
+                    amberLoginPref?.isVisible = false
+                    amberDisconnectPref?.isVisible = true
+                }
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.INTERNAL -> {
+                    importKeyPref?.isVisible = true
+                    generateKeyPref?.isVisible = true
+                    exportKeyPref?.isVisible = true
+                    amberLoginPref?.isVisible = amberInstalled
+                    amberDisconnectPref?.isVisible = false
+                }
+                io.heckel.ntfy.crypto.KeyManager.LoginMode.NONE -> {
+                    importKeyPref?.isVisible = true
+                    generateKeyPref?.isVisible = true
+                    exportKeyPref?.isVisible = false
+                    amberLoginPref?.isVisible = amberInstalled
+                    amberDisconnectPref?.isVisible = false
+                }
             }
         }
 

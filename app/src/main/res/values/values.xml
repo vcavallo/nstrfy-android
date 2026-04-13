@@ -40,6 +40,8 @@
     <string name="settings_nostr_identity_import_key" translatable="false">NostrIdentityImport</string>
     <string name="settings_nostr_identity_generate_key" translatable="false">NostrIdentityGenerate</string>
     <string name="settings_nostr_identity_export_key" translatable="false">NostrIdentityExport</string>
+    <string name="settings_nostr_identity_amber_login_key" translatable="false">NostrIdentityAmberLogin</string>
+    <string name="settings_nostr_identity_amber_disconnect_key" translatable="false">NostrIdentityAmberDisconnect</string>
     <string name="settings_relays_manage_key" translatable="false">RelaysManage</string>
     <string name="settings_about_version_key" translatable="false">Version</string>
 

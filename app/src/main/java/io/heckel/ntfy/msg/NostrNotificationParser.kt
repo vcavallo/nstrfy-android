@@ -1,9 +1,7 @@
 package io.heckel.ntfy.msg
 
 import com.vitorpamplona.quartz.nip01Core.core.Event
-import com.vitorpamplona.quartz.nip04Dm.crypto.Nip04
-import com.vitorpamplona.quartz.nip44Encryption.Nip44v2
-import io.heckel.ntfy.crypto.KeyManager
+import io.heckel.ntfy.crypto.EventDecryptor
 import io.heckel.ntfy.db.Action
 import io.heckel.ntfy.db.Icon
 import io.heckel.ntfy.db.Notification
@@ -29,10 +27,12 @@ private const val PRIORITY_MIN = 1
  * - for public subscriptions (inbox=false), plain JSON is also accepted
  * - topic routing: decrypted payload.topic matched against subscription.topic
  * - empty/null subscription.topic = catch-all
+ *
+ * Decryption is delegated to an EventDecryptor, which may use a local key
+ * or an external signer (Amber) via NIP-55 ContentProvider.
  */
-class NostrNotificationParser(private val keyManager: KeyManager) {
+class NostrNotificationParser(private val decryptor: EventDecryptor) {
 
-    private val nip44 = Nip44v2()
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     data class ParsedNotification(
@@ -44,7 +44,7 @@ class NostrNotificationParser(private val keyManager: KeyManager) {
      * Attempt to parse an event against the given subscriptions.
      * Returns null if the event cannot be decrypted, parsed, or routed.
      */
-    fun parse(event: Event, subscriptions: List<Subscription>): ParsedNotification? {
+    suspend fun parse(event: Event, subscriptions: List<Subscription>): ParsedNotification? {
         val senderPubkeyHex = event.pubKey
         val (payload, encryptionMethod) = decryptOrParse(event) ?: return null
 
@@ -57,6 +57,12 @@ class NostrNotificationParser(private val keyManager: KeyManager) {
         val sequenceId = event.tags.find { it.size >= 2 && it[0] == "d" }?.get(1) ?: event.id
         val priority = parsePriority(payload.priority)
         val tagsStr = payload.tags?.joinToString(",") ?: ""
+        val senderNpub = try {
+            com.vitorpamplona.quartz.nip19Bech32.bech32.Bech32.encodeBytes(
+                "npub", com.vitorpamplona.quartz.utils.Hex.decode(senderPubkeyHex),
+                com.vitorpamplona.quartz.nip19Bech32.bech32.Bech32.Encoding.Bech32
+            )
+        } catch (e: Exception) { senderPubkeyHex }
         val notifId = deriveNotificationId(NostrConstants.NOSTR_BASE_URL, subscription.topic, sequenceId)
         val icon = payload.icon?.takeIf { it.isNotBlank() }?.let { Icon(it) }
         val actions = payload.actions?.mapNotNull { it.toAction() }
@@ -68,7 +74,7 @@ class NostrNotificationParser(private val keyManager: KeyManager) {
             sequenceId = sequenceId,
             title = payload.title ?: "",
             message = payload.message,
-            contentType = "",
+            contentType = senderNpub, // Store sender npub for display
             encoding = encryptionMethod,
             notificationId = notifId,
             priority = priority,
@@ -87,38 +93,25 @@ class NostrNotificationParser(private val keyManager: KeyManager) {
 
     // ---
 
-    private fun decryptOrParse(event: Event): Pair<NostrPayload, String>? {
-        // Try decryption if we have a key
-        if (keyManager.hasKey()) {
-            val privKey = try { keyManager.getPrivKeyBytes() } catch (e: Exception) { null }
-            val senderPubKeyBytes = try {
-                com.vitorpamplona.quartz.utils.Hex.decode(event.pubKey)
-            } catch (e: Exception) { null }
+    private suspend fun decryptOrParse(event: Event): Pair<NostrPayload, String>? {
+        val senderPubKeyHex = event.pubKey
 
-            if (privKey != null && senderPubKeyBytes != null) {
-                // 1. Try NIP-44
-                val nip44Result = runCatching { nip44.decrypt(event.content, privKey, senderPubKeyBytes) }
-                if (nip44Result.isSuccess) {
-                    val plaintext = nip44Result.getOrNull()
-                    if (plaintext != null) {
-                        val payload = parsePayload(plaintext, "NIP-44")
-                        if (payload != null) return Pair(payload, "nip44")
-                    }
-                }
+        // Only try decryption if the event has a #p tag (addressed to someone).
+        // Public events (no #p tag) go straight to plain JSON — avoids spamming
+        // Amber with decrypt requests for events that aren't encrypted to us.
+        val hasPTag = event.tags.any { it.size >= 2 && it[0] == "p" }
 
-                // 2. Fallback: NIP-04
-                val nip04Result = runCatching { Nip04.decrypt(event.content, privKey, senderPubKeyBytes) }
-                if (nip04Result.isSuccess) {
-                    val plaintext = nip04Result.getOrNull()
-                    if (plaintext != null) {
-                        val payload = parsePayload(plaintext, "NIP-04")
-                        if (payload != null) return Pair(payload, "nip04")
-                    }
-                }
+        if (hasPTag && decryptor.isAvailable()) {
+            // Try NIP-44 decryption (nstrfy only uses NIP-44; skip NIP-04 to avoid
+            // double-prompting when using Amber external signer)
+            val nip44Plaintext = decryptor.nip44Decrypt(event.content, senderPubKeyHex)
+            if (nip44Plaintext != null) {
+                val payload = parsePayload(nip44Plaintext, "NIP-44")
+                if (payload != null) return Pair(payload, "nip44")
             }
         }
 
-        // 3. Last resort: treat content as plain JSON (public/unencrypted events)
+        // 3. Plain JSON (public/unencrypted events, or decryption failed)
         val payload = parsePayload(event.content, "plain")
         return if (payload != null) Pair(payload, "plain") else null
     }
@@ -155,7 +148,7 @@ class NostrNotificationParser(private val keyManager: KeyManager) {
 // ---  kotlinx.serialization data classes for the NIP-DRAFT payload ---
 
 @Serializable
-private data class NostrPayload(
+internal data class NostrPayload(
     @SerialName("version") val version: String? = null,
     @SerialName("title") val title: String? = null,
     @SerialName("message") val message: String = "",
@@ -169,7 +162,7 @@ private data class NostrPayload(
 )
 
 @Serializable
-private data class NostrAction(
+internal data class NostrAction(
     @SerialName("label") val label: String,
     @SerialName("url") val url: String? = null,
     @SerialName("method") val method: String? = null, // "view", "http"

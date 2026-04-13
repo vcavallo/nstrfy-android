@@ -4,7 +4,10 @@ import android.app.Application
 import android.net.ConnectivityManager
 import android.net.Network
 import com.google.android.material.color.DynamicColors
+import io.heckel.ntfy.crypto.AmberDecryptor
+import io.heckel.ntfy.crypto.EventDecryptor
 import io.heckel.ntfy.crypto.KeyManager
+import io.heckel.ntfy.crypto.LocalKeyDecryptor
 import io.heckel.ntfy.db.Repository
 import io.heckel.ntfy.service.SubscriberServiceManager
 import io.heckel.ntfy.util.Log
@@ -17,6 +20,22 @@ class Application : Application() {
     val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val keyManager by lazy { KeyManager(applicationContext) }
+
+    /** Pending encrypted events that couldn't be decrypted in the background (Amber not available) */
+    val pendingEncryptedEvents = java.util.concurrent.ConcurrentLinkedQueue<com.vitorpamplona.quartz.nip01Core.core.Event>()
+
+    /** LiveData to notify the Activity when new pending events arrive */
+    val pendingEventSignal = androidx.lifecycle.MutableLiveData<Int>(0)
+
+    fun createDecryptor(): EventDecryptor = when (keyManager.getLoginMode()) {
+        KeyManager.LoginMode.INTERNAL -> LocalKeyDecryptor(keyManager)
+        KeyManager.LoginMode.AMBER -> AmberDecryptor(
+            pubKeyHex = keyManager.getAmberPubKeyHex(),
+            packageName = keyManager.getAmberPackageName(),
+            contentResolver = contentResolver
+        )
+        KeyManager.LoginMode.NONE -> LocalKeyDecryptor(keyManager) // isAvailable()=false
+    }
 
     val repository by lazy {
         val repository = Repository.getInstance(applicationContext)

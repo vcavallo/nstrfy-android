@@ -148,11 +148,11 @@
     <string name="add_dialog_error_ssl_untrusted">Server certificate not trusted</string>
 
     <!-- Detail activity -->
-    <string name="detail_no_notifications_text">You haven\'t received any notifications for this topic yet.</string>
-    <string name="detail_how_to_intro">To send notifications to this topic, simply PUT or POST to the topic URL.
+    <string name="detail_no_notifications_text">No notifications yet for this topic.</string>
+    <string name="detail_how_to_intro">Publish a kind 7741 event to send a notification:
     </string>
-    <string name="detail_how_to_example"><![CDATA[ Example (using curl):<br/><tt>$ curl -d \"Hi\" %1$s</tt> ]]></string>
-    <string name="detail_how_to_link">Detailed instructions available on ntfy.sh, and in the docs.
+    <string name="detail_how_to_example"><![CDATA[ Example (using nak):<br/><tt>$ nak event --kind 7741 \\<br/>  --content \'{"title":"Hi","message":"Hello!","topic":"%1$s"}\' \\<br/>  -t d=$(date +%%s) \\<br/>  --sec $(nak key generate) \\<br/>  wss://nos.lol</tt> ]]></string>
+    <string name="detail_how_to_link">See nstrfy.sh for sending encrypted notifications.
     </string>
     <string name="detail_no_search_results">Your search returned no results</string>
     <string name="detail_clear_dialog_message">Delete all of the notifications in this topic?
@@ -350,6 +350,23 @@
     <string name="settings_nostr_identity_export_success">nsec copied to clipboard</string>
     <string name="settings_nostr_identity_npub_copied">npub copied to clipboard</string>
     <string name="settings_nostr_identity_no_key">No key configured</string>
+    <string name="settings_nostr_identity_amber_login_title">Login with Amber</string>
+    <string name="settings_nostr_identity_amber_login_summary">Use Amber external signer (recommended)</string>
+    <string name="settings_nostr_identity_amber_connected">Connected via Amber</string>
+    <string name="settings_nostr_identity_amber_disconnect_title">Disconnect Amber</string>
+    <string name="settings_nostr_identity_amber_disconnect_summary">Remove Amber connection and clear identity</string>
+    <string name="settings_nostr_identity_amber_guidance_title">Amber permissions</string>
+    <string name="settings_nostr_identity_amber_guidance_message">When Amber asks about decryption permissions, select \"Always allow\". Otherwise nstrfy won\'t be able to decrypt notifications in the background.</string>
+    <string name="settings_nostr_identity_amber_login_success">Logged in via Amber</string>
+    <string name="settings_nostr_identity_amber_login_failed">Amber login failed</string>
+    <string name="settings_nostr_identity_amber_not_installed">Amber is not installed</string>
+    <string name="settings_nostr_identity_amber_disconnected">Amber disconnected</string>
+    <string name="settings_nostr_identity_amber_permission_warning_title">Permission issue</string>
+    <string name="settings_nostr_identity_amber_permission_warning">Amber did not grant \"Always allow\" for decryption. Notifications may not work in the background. Please try again and select \"Always allow\".</string>
+    <string name="main_banner_identity_text">Connect your nostr identity to receive notifications. Go to Settings and log in with Amber or import your nsec.</string>
+    <string name="main_banner_identity_button">Open Settings</string>
+    <string name="notification_encrypted_title">New encrypted notification</string>
+    <string name="notification_encrypted_text">Open nstrfy to decrypt and view</string>
 
     <!-- Settings: Relays -->
     <string name="settings_relays_header">Relays</string>

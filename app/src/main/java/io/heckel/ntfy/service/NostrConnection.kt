@@ -43,7 +43,7 @@ data class NostrConnectionId(
 
 /**
  * Maintains a persistent connection to a set of nostr relays and listens for
- * kind 30078 notification events. Replaces WsConnection / JsonConnection.
+ * kind 7741 notification events. Replaces WsConnection / JsonConnection.
  *
  * A single instance handles ALL subscriptions: it builds one relay filter per
  * subscription mode (inbox vs. public) and routes parsed events to the correct
@@ -56,16 +56,19 @@ class NostrConnection(
     private val connectionId: NostrConnectionId,
     private val repository: Repository,
     private val keyManager: KeyManager,
+    private val decryptor: io.heckel.ntfy.crypto.EventDecryptor,
     private val connectionDetailsListener: (String, ConnectionState, Throwable?, Long) -> Unit,
     private val notificationListener: (Subscription, Notification) -> Unit,
+    private val pendingEventListener: ((Event) -> Unit)? = null,
     private val alarmManager: AlarmManager
 ) : Connection {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val parser = NostrNotificationParser(keyManager)
+    private val parser = NostrNotificationParser(decryptor)
     private var quartzClient: QuartzNostrClient? = null
     private var errorCount = 0
     private var closed = false
+    private val seenEventIds = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
     private val globalId = GLOBAL_ID.incrementAndGet()
 
@@ -169,47 +172,100 @@ class NostrConnection(
             emptyList()
         }
 
+        // Only listen for new events (since = now). Don't replay historical events
+        // which could flood the device on public topics with lots of old notifications.
+        val sinceNow = System.currentTimeMillis() / 1000
+
         // Inbox filter: encrypted events tagged to our pubkey (#p = userPubkey)
         if (userPubkey != null) {
             val inboxFilter = Filter(
                 kinds = listOf(KIND_NSTRFY),
-                tags = mapOf("p" to listOf(userPubkey))
+                tags = mapOf("p" to listOf(userPubkey)),
+                since = sinceNow
             )
             val filterMap = connectionId.relayUrls.associate { url ->
                 val normalized = url.normalizeRelayUrl()
                 (normalized ?: NormalizedRelayUrl(url)) to listOf(inboxFilter)
             }
-            Log.d(TAG, "(gid=$globalId): Opening inbox subscription (#p=$userPubkey)")
+            Log.d(TAG, "(gid=$globalId): Opening inbox subscription (#p=$userPubkey, since=$sinceNow)")
             client.openReqSubscription(subId = SUB_INBOX, filters = filterMap)
         }
 
-        // Public filter: all kind 30078 events (topic + sender filtering is client-side)
+        // Public filter: all kind 7741 events (topic + sender filtering is client-side)
         // This catches public/unencrypted events that don't have a #p tag
         val publicFilter = if (allAllowedSenders.isNotEmpty()) {
             Filter(
                 kinds = listOf(KIND_NSTRFY),
-                authors = allAllowedSenders
+                authors = allAllowedSenders,
+                since = sinceNow
             )
         } else {
-            Filter(kinds = listOf(KIND_NSTRFY))
+            Filter(kinds = listOf(KIND_NSTRFY), since = sinceNow)
         }
         val filterMap = connectionId.relayUrls.associate { url ->
             val normalized = url.normalizeRelayUrl()
             (normalized ?: NormalizedRelayUrl(url)) to listOf(publicFilter)
         }
-        Log.d(TAG, "(gid=$globalId): Opening public subscription (${if (allAllowedSenders.isNotEmpty()) "${allAllowedSenders.size} allowed authors" else "all authors"})")
+        Log.d(TAG, "(gid=$globalId): Opening public subscription (${if (allAllowedSenders.isNotEmpty()) "${allAllowedSenders.size} allowed authors" else "all authors"}, since=$sinceNow)")
         client.openReqSubscription(subId = SUB_PUBLIC, filters = filterMap)
     }
 
     private fun handleEvent(event: Event) {
+        // Dedup: inbox and public filters can both match the same event
+        if (!seenEventIds.add(event.id)) return
+        if (seenEventIds.size > 1000) seenEventIds.clear() // Prevent unbounded growth
+
         scope.launch {
             val senderPubkey = event.pubKey
-            Log.d(TAG, "(gid=$globalId): Received kind 30078 event id=${event.id.take(8)} from $senderPubkey")
+            Log.d(TAG, "(gid=$globalId): Received kind 7741 event id=${event.id.take(8)} from $senderPubkey")
 
-            // Find matching subscription(s) via topic routing
+            // If the event has a #p tag (encrypted to someone), and we're using Amber,
+            // skip background decryption entirely to avoid Amber showing prompts from the
+            // background service. Queue it for foreground decryption instead.
+            val userPubkey = try { keyManager.getPubKeyHex() } catch (e: Exception) { null }
+            val isForUs = userPubkey != null && event.tags.any {
+                it.size >= 2 && it[0] == "p" && it[1] == userPubkey
+            }
+            if (isForUs && decryptor is io.heckel.ntfy.crypto.AmberDecryptor) {
+                // Try ContentProvider silently — if it works (Always allow), great.
+                // If not, queue for foreground without showing any prompt.
+                val subscriptions = repository.getSubscriptions()
+                val parsed = parser.parse(event, subscriptions)
+                if (parsed != null) {
+                    // ContentProvider worked silently (Always allow mode)
+                    if (parsed.subscription.whitelistEnabled) {
+                        val allowedSenders = repository.getAllowedSenders(parsed.subscription.id)
+                        if (senderPubkey !in allowedSenders) {
+                            Log.d(TAG, "(gid=$globalId): Sender not in allowlist, discarding")
+                            return@launch
+                        }
+                    }
+                    notificationListener(parsed.subscription, parsed.notification)
+                } else {
+                    // ContentProvider didn't work — pre-check sender against allowlists
+                    // before queuing. If ALL subscriptions with whitelists exclude this sender,
+                    // don't bother queuing (prevents spam from unknown senders).
+                    val allAllowedSenders = try { repository.getAllAllowedSenders() } catch (e: Exception) { emptyList() }
+                    val anySubsWithoutWhitelist = subscriptions.any { !it.whitelistEnabled }
+                    if (allAllowedSenders.contains(senderPubkey) || anySubsWithoutWhitelist) {
+                        Log.d(TAG, "(gid=$globalId): Amber background decrypt failed, queuing for foreground")
+                        pendingEventListener?.invoke(event)
+                    } else {
+                        Log.d(TAG, "(gid=$globalId): Sender $senderPubkey not in any allowlist, discarding")
+                    }
+                }
+                return@launch
+            }
+
+            // Non-Amber path (local key) or public events (no #p tag)
             val subscriptions = repository.getSubscriptions()
             val parsed = parser.parse(event, subscriptions) ?: run {
-                Log.d(TAG, "(gid=$globalId): Event could not be parsed or routed, discarding")
+                if (isForUs) {
+                    Log.d(TAG, "(gid=$globalId): Encrypted event for us, queuing for foreground decryption")
+                    pendingEventListener?.invoke(event)
+                } else {
+                    Log.d(TAG, "(gid=$globalId): Event could not be parsed or routed, discarding")
+                }
                 return@launch
             }
 
@@ -240,7 +296,7 @@ class NostrConnection(
     companion object {
         private const val TAG = "NstrfyNostrConn"
         private const val RECONNECT_TAG = "NostrReconnect"
-        private const val KIND_NSTRFY = 30078
+        private const val KIND_NSTRFY = 7741
         private const val SUB_INBOX = "nstrfy-inbox"
         private const val SUB_PUBLIC = "nstrfy-public"
         const val NOSTR_SENTINEL = "nostr://"

@@ -19,6 +19,10 @@
         <intent>
             <action android:name="org.unifiedpush.android.connector.RAISE_TO_FOREGROUND" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="nostrsigner" />
+        </intent>
     </queries>
 
     <!-- Application -->
