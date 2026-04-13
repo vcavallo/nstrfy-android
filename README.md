@@ -4,6 +4,8 @@ nstrfy is a native Android app that receives push notifications over [nostr](htt
 
 Think [ntfy](https://ntfy.sh), but decentralized -- no server required, just nostr relays.
 
+**Work in progress! base case works, but important additional features are being added and bugs being fixed**
+
 ## How it works
 
 1. Generate or import a nostr keypair in the app
