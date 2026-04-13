@@ -54,13 +54,6 @@
                     android:name="android.support.PARENT_ACTIVITY"
                     android:value=".ui.MainActivity"/>
 
-            <!-- Open ntfy:// links with the app -->
-            <intent-filter android:label="@string/app_name">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="ntfy" />
-            </intent-filter>
         </activity>
 
         <!-- Settings activity -->
@@ -76,19 +69,6 @@
         <activity
                 android:name=".ui.DetailSettingsActivity"
                 android:parentActivityName=".ui.DetailActivity">
-        </activity>
-
-        <!-- Share file activity, incoming files/shares -->
-        <activity android:name=".ui.ShareActivity" android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
-                <data android:mimeType="text/*" />
-                <data android:mimeType="audio/*" />
-                <data android:mimeType="video/*" />
-                <data android:mimeType="application/*" />
-            </intent-filter>
         </activity>
 
         <!-- Hack: Activity used for "view" action button with "clear=true" (to be able to cancel notifications and show a URL) -->
@@ -138,10 +118,10 @@
                 android:enabled="true"
                 android:exported="false">
             <intent-filter>
-                <action android:name="io.heckel.ntfy.CONNECTION_ALERT_DISMISS"/>
-                <action android:name="io.heckel.ntfy.CONNECTION_ALERT_SNOOZE_SHORT"/>
-                <action android:name="io.heckel.ntfy.CONNECTION_ALERT_SNOOZE_LONG"/>
-                <action android:name="io.heckel.ntfy.CONNECTION_ALERT_NEVER"/>
+                <action android:name="io.nstrfy.android.CONNECTION_ALERT_DISMISS"/>
+                <action android:name="io.nstrfy.android.CONNECTION_ALERT_SNOOZE_SHORT"/>
+                <action android:name="io.nstrfy.android.CONNECTION_ALERT_SNOOZE_LONG"/>
+                <action android:name="io.nstrfy.android.CONNECTION_ALERT_NEVER"/>
             </intent-filter>
         </receiver>
 
@@ -151,7 +131,7 @@
                 android:enabled="true"
                 android:exported="true">
             <intent-filter>
-                <action android:name="io.heckel.ntfy.SEND_MESSAGE"/>
+                <action android:name="io.nstrfy.android.SEND_MESSAGE"/>
             </intent-filter>
         </receiver>
 
@@ -180,21 +160,6 @@
                 android:enabled="true"
                 android:exported="false">
         </receiver>
-
-        <!-- Firebase messaging (note that this is empty in the F-Droid flavor) -->
-        <service
-                android:name=".firebase.FirebaseService"
-                android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
-            </intent-filter>
-        </service>
-        <meta-data
-                android:name="firebase_analytics_collection_enabled"
-                android:value="false"/>
-        <meta-data
-                android:name="com.google.firebase.messaging.default_notification_icon"
-                android:resource="@drawable/ic_notification"/>
 
         <!-- FileProvider required for older Android versions (<= P), to allow passing the file URI in the open intent.
              Avoids "exposed beyond app through Intent.getData" exception, see see https://stackoverflow.com/a/57288352/1440785 -->

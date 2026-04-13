@@ -12,7 +12,7 @@ import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.asLiveData
 import androidx.lifecycle.map
-import io.heckel.ntfy.msg.ApiService
+import io.heckel.ntfy.msg.NostrConstants
 import io.heckel.ntfy.util.Log
 import io.heckel.ntfy.util.validUrl
 import java.util.concurrent.ConcurrentHashMap
@@ -25,6 +25,8 @@ class Repository(private val sharedPrefs: SharedPreferences, database: Database)
     private val trustedCertificateDao = database.trustedCertificateDao()
     private val clientCertificateDao = database.clientCertificateDao()
     private val customHeaderDao = database.customHeaderDao()
+    private val relayDao = database.relayDao()
+    private val allowedSenderDao = database.allowedSenderDao()
 
     private val connectionDetails = ConcurrentHashMap<String, ConnectionDetails>()
     private val connectionDetailsLiveData = MutableLiveData<Map<String, ConnectionDetails>>(connectionDetails)
@@ -136,7 +138,7 @@ class Repository(private val sharedPrefs: SharedPreferences, database: Database)
     @WorkerThread
     suspend fun addNotification(notification: Notification): Boolean {
         val maybeExistingNotification = notificationDao.get(notification.id)
-        if (maybeExistingNotification != null || notification.event != ApiService.EVENT_MESSAGE) {
+        if (maybeExistingNotification != null || notification.event != NostrConstants.EVENT_MESSAGE) {
             return false
         }
         // Mark old notifications with the same sequence ID as deleted (this is an update to an existing sequence)
@@ -564,6 +566,7 @@ class Repository(private val sharedPrefs: SharedPreferences, database: Database)
                 totalCount = s.totalCount,
                 newCount = s.newCount,
                 lastActive = s.lastActive,
+                inboxMode = s.inboxMode,
                 connectionDetails = connectionDetails[s.baseUrl] ?: ConnectionDetails()
             )
         }
@@ -591,6 +594,7 @@ class Repository(private val sharedPrefs: SharedPreferences, database: Database)
             totalCount = s.totalCount,
             newCount = s.newCount,
             lastActive = s.lastActive,
+            inboxMode = s.inboxMode,
             connectionDetails = connectionDetails[s.baseUrl] ?: ConnectionDetails()
         )
     }
@@ -626,6 +630,46 @@ class Repository(private val sharedPrefs: SharedPreferences, database: Database)
     fun clearConnectionDetails() {
         connectionDetails.clear()
         connectionDetailsLiveData.postValue(emptyMap())
+    }
+
+    // Relay methods
+
+    suspend fun getEnabledRelays(): List<String> {
+        return relayDao.listEnabledUrls()
+    }
+
+    suspend fun getAllRelays(): List<Relay> {
+        return relayDao.list()
+    }
+
+    suspend fun addRelay(url: String) {
+        relayDao.insert(Relay(url = url, enabled = true))
+    }
+
+    suspend fun removeRelay(url: String) {
+        relayDao.delete(url)
+    }
+
+    suspend fun setRelayEnabled(url: String, enabled: Boolean) {
+        relayDao.setEnabled(url, enabled)
+    }
+
+    // AllowedSender methods
+
+    suspend fun getAllAllowedSenders(): List<String> {
+        return allowedSenderDao.listAllPubkeys()
+    }
+
+    suspend fun getAllowedSenders(subscriptionId: Long): List<String> {
+        return allowedSenderDao.listForSubscription(subscriptionId)
+    }
+
+    suspend fun addAllowedSender(subscriptionId: Long, pubkeyHex: String) {
+        allowedSenderDao.insert(AllowedSender(subscriptionId = subscriptionId, pubkeyHex = pubkeyHex))
+    }
+
+    suspend fun removeAllowedSender(subscriptionId: Long, pubkeyHex: String) {
+        allowedSenderDao.delete(subscriptionId, pubkeyHex)
     }
 
     fun getConnectionForceReconnectVersion(baseUrl: String): Long {

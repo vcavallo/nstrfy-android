@@ -30,6 +30,7 @@ import com.google.gson.Gson
 import io.heckel.ntfy.BuildConfig
 import io.heckel.ntfy.R
 import io.heckel.ntfy.backup.Backuper
+import io.heckel.ntfy.crypto.KeyManager
 import io.heckel.ntfy.db.CustomHeader
 import io.heckel.ntfy.db.Repository
 import io.heckel.ntfy.db.User
@@ -172,6 +173,156 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
             // Important note: We do not use the default shared prefs to store settings. Every
             // preferenceDataStore is overridden to use the repository. This is convenient, because
             // everybody has access to the repository.
+
+            // --- Nostr Identity ---
+            val keyManager = (requireActivity().application as io.heckel.ntfy.app.Application).keyManager
+
+            // npub display + copy
+            val npubPrefId = context?.getString(R.string.settings_nostr_identity_npub_key) ?: return
+            val npubPref: Preference? = findPreference(npubPrefId)
+            npubPref?.preferenceDataStore = object : PreferenceDataStore() { }
+            fun refreshNpubSummary() {
+                npubPref?.summary = if (keyManager.hasKey()) {
+                    val npub = keyManager.getPubKeyNpub()
+                    getString(R.string.settings_nostr_identity_npub_summary, npub)
+                } else {
+                    getString(R.string.settings_nostr_identity_npub_summary_none)
+                }
+            }
+            refreshNpubSummary()
+            npubPref?.onPreferenceClickListener = OnPreferenceClickListener {
+                if (keyManager.hasKey()) {
+                    val npub = keyManager.getPubKeyNpub()
+                    copyToClipboard(requireContext(), "npub", npub)
+                    Toast.makeText(context, getString(R.string.settings_nostr_identity_npub_copied), Toast.LENGTH_SHORT).show()
+                }
+                true
+            }
+
+            // Import key
+            val importKeyPrefId = context?.getString(R.string.settings_nostr_identity_import_key) ?: return
+            val importKeyPref: Preference? = findPreference(importKeyPrefId)
+            importKeyPref?.preferenceDataStore = object : PreferenceDataStore() { }
+            importKeyPref?.onPreferenceClickListener = OnPreferenceClickListener {
+                val input = android.widget.EditText(requireContext())
+                input.hint = "nsec1... or hex"
+                input.inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(getString(R.string.settings_nostr_identity_import_dialog_title))
+                    .setMessage(getString(R.string.settings_nostr_identity_import_dialog_message))
+                    .setView(input)
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        try {
+                            keyManager.storeKey(input.text.toString().trim())
+                            Toast.makeText(context, getString(R.string.settings_nostr_identity_import_success), Toast.LENGTH_SHORT).show()
+                            refreshNpubSummary()
+                            serviceManager.refresh()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, getString(R.string.settings_nostr_identity_import_error), Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+                true
+            }
+
+            // Generate key
+            val generateKeyPrefId = context?.getString(R.string.settings_nostr_identity_generate_key) ?: return
+            val generateKeyPref: Preference? = findPreference(generateKeyPrefId)
+            generateKeyPref?.preferenceDataStore = object : PreferenceDataStore() { }
+            generateKeyPref?.onPreferenceClickListener = OnPreferenceClickListener {
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(getString(R.string.settings_nostr_identity_generate_dialog_title))
+                    .setMessage(getString(R.string.settings_nostr_identity_generate_dialog_message))
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        keyManager.generateKey()
+                        Toast.makeText(context, getString(R.string.settings_nostr_identity_generate_success), Toast.LENGTH_SHORT).show()
+                        refreshNpubSummary()
+                        serviceManager.refresh()
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+                true
+            }
+
+            // Export nsec
+            val exportKeyPrefId = context?.getString(R.string.settings_nostr_identity_export_key) ?: return
+            val exportKeyPref: Preference? = findPreference(exportKeyPrefId)
+            exportKeyPref?.preferenceDataStore = object : PreferenceDataStore() { }
+            exportKeyPref?.onPreferenceClickListener = OnPreferenceClickListener {
+                if (keyManager.hasKey()) {
+                    val nsec = keyManager.exportNsec()
+                    copyToClipboard(requireContext(), "nsec", nsec)
+                    Toast.makeText(context, getString(R.string.settings_nostr_identity_export_success), Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, getString(R.string.settings_nostr_identity_no_key), Toast.LENGTH_SHORT).show()
+                }
+                true
+            }
+
+            // --- Relays ---
+            val relaysPrefId = context?.getString(R.string.settings_relays_manage_key) ?: return
+            val relaysPref: Preference? = findPreference(relaysPrefId)
+            relaysPref?.preferenceDataStore = object : PreferenceDataStore() { }
+            fun refreshRelaySummary() {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val relays = repository.getAllRelays()
+                    val count = relays.size
+                    val enabledCount = relays.count { it.enabled }
+                    activity?.runOnUiThread {
+                        relaysPref?.summary = if (count == 0) {
+                            getString(R.string.settings_relays_none)
+                        } else {
+                            "$enabledCount/$count relays enabled"
+                        }
+                    }
+                }
+            }
+            refreshRelaySummary()
+            relaysPref?.onPreferenceClickListener = OnPreferenceClickListener {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val relays = repository.getAllRelays()
+                    activity?.runOnUiThread {
+                        val items = relays.map { "${if (it.enabled) "✓" else "✗"} ${it.url}" }.toTypedArray()
+                        val builder = MaterialAlertDialogBuilder(requireContext())
+                            .setTitle(getString(R.string.settings_relays_header))
+                            .setItems(items) { _, which ->
+                                val relay = relays[which]
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    repository.setRelayEnabled(relay.url, !relay.enabled)
+                                    serviceManager.refresh()
+                                    activity?.runOnUiThread { refreshRelaySummary() }
+                                }
+                            }
+                            .setPositiveButton(getString(R.string.settings_relays_add_dialog_title)) { _, _ ->
+                                val input = android.widget.EditText(requireContext())
+                                input.hint = "wss://relay.example.com"
+                                MaterialAlertDialogBuilder(requireContext())
+                                    .setTitle(getString(R.string.settings_relays_add_dialog_title))
+                                    .setMessage(getString(R.string.settings_relays_add_dialog_message))
+                                    .setView(input)
+                                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                                        val url = input.text.toString().trim()
+                                        if (url.startsWith("wss://") || url.startsWith("ws://")) {
+                                            lifecycleScope.launch(Dispatchers.IO) {
+                                                repository.addRelay(url)
+                                                serviceManager.refresh()
+                                                activity?.runOnUiThread {
+                                                    Toast.makeText(context, getString(R.string.settings_relays_added), Toast.LENGTH_SHORT).show()
+                                                    refreshRelaySummary()
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .setNegativeButton(android.R.string.cancel, null)
+                                    .show()
+                            }
+                            .setNegativeButton(android.R.string.cancel, null)
+                        builder.show()
+                    }
+                }
+                true
+            }
 
             // Notifications muted until (global)
             val mutedUntilPrefId = context?.getString(R.string.settings_notifications_muted_until_key) ?: return
@@ -748,7 +899,7 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
             // Version
             val versionPrefId = context?.getString(R.string.settings_about_version_key) ?: return
             val versionPref: Preference? = findPreference(versionPrefId)
-            val version = getString(R.string.settings_about_version_format, BuildConfig.VERSION_NAME, BuildConfig.FLAVOR)
+            val version = getString(R.string.settings_about_version_format, BuildConfig.VERSION_NAME, "nostr")
             versionPref?.summary = version
             versionPref?.onPreferenceClickListener = OnPreferenceClickListener {
                 val context = context ?: return@OnPreferenceClickListener false
@@ -826,7 +977,7 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                         if (!response.isSuccessful) {
                             throw Exception("Unexpected response ${response.code}")
                         }
-                        val body = response.body.string().trim()
+                        val body = response.body?.string()?.trim() ?: ""
                         if (body.isEmpty()) throw Exception("Return body is empty")
                         Log.d(TAG, "Logs uploaded successfully: $body")
                         val resp = gson.fromJson(body, NopasteResponse::class.java)

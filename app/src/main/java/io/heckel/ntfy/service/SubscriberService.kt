@@ -23,11 +23,11 @@ import io.heckel.ntfy.app.Application
 import io.heckel.ntfy.db.ConnectionState
 import io.heckel.ntfy.db.Repository
 import io.heckel.ntfy.db.Subscription
-import io.heckel.ntfy.msg.ApiService
+import io.heckel.ntfy.crypto.KeyManager
+import io.heckel.ntfy.msg.NostrConstants
 import io.heckel.ntfy.msg.NotificationDispatcher
 import io.heckel.ntfy.ui.Colors
 import io.heckel.ntfy.ui.MainActivity
-import io.heckel.ntfy.util.HttpUtil
 import io.heckel.ntfy.util.Log
 import io.heckel.ntfy.util.isNetworkAvailable
 import io.heckel.ntfy.util.shortUrl
@@ -70,8 +70,8 @@ class SubscriberService : Service() {
     private var isServiceStarted = false
     private val repository by lazy { (application as Application).repository }
     private val dispatcher by lazy { NotificationDispatcher(this, repository) }
-    private val api by lazy { ApiService(this) }
-    private val connections = ConcurrentHashMap<ConnectionId, Connection>()
+    private val keyManager by lazy { (application as io.heckel.ntfy.app.Application).keyManager }
+    private val connections = ConcurrentHashMap<NostrConnectionId, Connection>()
     private var notificationManager: NotificationManager? = null
     private var serviceNotification: Notification? = null
     private val refreshMutex = Mutex() // Ensure refreshConnections() is only run one at a time
@@ -206,101 +206,77 @@ class SubscriberService : Service() {
     }
 
     /**
-     * Start/stop connections based on the desired state
-     * It is guaranteed that only one of function is run at a time (see mutex above).
+     * Start/stop the single NostrConnection based on the desired state.
+     * It is guaranteed that only one of this function is run at a time (see mutex above).
      */
     private suspend fun reallyRefreshConnections() {
-        // Group instant subscriptions by base URL, there is only one connection per base URL
         val instantSubscriptions = repository.getSubscriptions().filter { s -> s.instant }
+        val relayUrls = repository.getEnabledRelays()
         val activeConnectionIds = connections.keys().toList().toSet()
-        val connectionProtocol = repository.getConnectionProtocol()
-        val desiredConnectionIds = instantSubscriptions // Set<ConnectionId>
-            .groupBy { s -> s.baseUrl }
-            .map { (baseUrl, subs) ->
-                // Create a unique connection ID for each base URL. Each change in the connection ID will
-                // trigger a new connection, and close existing connections. We want to make sure that when the
-                // connection protocol (JSON/WS), the user or the custom headers are updated, that we kill existing
-                // connections and start new ones.
-                val credentialsHash = repository.getUser(baseUrl)?.let { "${it.username}:${it.password}".hashCode() } ?: 0
-                val headersHash = repository.getCustomHeaders(baseUrl)
-                    .sortedBy { "${it.name}:${it.value}" }
-                    .joinToString(",") { "${it.name}:${it.value}" }
-                    .hashCode()
-                val trustedCertsHash = repository.getTrustedCertificate(baseUrl)?.hashCode() ?: 0
-                val clientCertHash = repository.getClientCertificate(baseUrl)?.hashCode() ?: 0
-                val connectionForceReconnectVersion = repository.getConnectionForceReconnectVersion(baseUrl)
-                ConnectionId(
-                    baseUrl = baseUrl,
-                    topicsToSubscriptionIds = subs.associate { s -> s.topic to s.id },
-                    connectionProtocol = connectionProtocol,
-                    credentialsHash = credentialsHash,
-                    headersHash = headersHash,
-                    trustedCertsHash = trustedCertsHash,
-                    clientCertHash = clientCertHash,
-                    connectionForceReconnectVersion = connectionForceReconnectVersion
-                )
+
+        // If nothing to connect, close all active connections
+        if (instantSubscriptions.isEmpty() || relayUrls.isEmpty() || !keyManager.hasKey()) {
+            if (activeConnectionIds.isNotEmpty()) {
+                Log.d(TAG, "Closing all nostr connections (no subs, no relays, or no key)")
+                activeConnectionIds.forEach { id -> connections.remove(id)?.close() }
             }
-            .toSet()
-        val newConnectionIds = desiredConnectionIds.subtract(activeConnectionIds)
-        val obsoleteConnectionIds = activeConnectionIds.subtract(desiredConnectionIds)
-        val match = activeConnectionIds == desiredConnectionIds
+            return
+        }
 
-        Log.d(TAG, "Refreshing subscriptions")
-        Log.d(TAG, "- Desired connections: $desiredConnectionIds")
-        Log.d(TAG, "- Active connections: $activeConnectionIds")
-        Log.d(TAG, "- New connections: $newConnectionIds")
-        Log.d(TAG, "- Obsolete connections: $obsoleteConnectionIds")
-        Log.d(TAG, "- Match? --> $match")
+        val topicsToSubscriptionIds = instantSubscriptions.associate { s -> s.topic to s.id }
+        val inboxSubscriptionIds = instantSubscriptions.filter { s -> s.inboxMode }.map { s -> s.id }.toSet()
+        val relaysHash = relayUrls.hashCode()
+        val pubkeyHash = try { keyManager.getPubKeyHex().hashCode() } catch (e: Exception) { 0 }
 
-        if (match) {
+        val desiredId = NostrConnectionId(
+            relayUrls = relayUrls,
+            topicsToSubscriptionIds = topicsToSubscriptionIds,
+            inboxSubscriptionIds = inboxSubscriptionIds,
+            relaysHash = relaysHash,
+            pubkeyHash = pubkeyHash
+        )
+        val desiredIds = setOf(desiredId)
+        val newIds = desiredIds.subtract(activeConnectionIds)
+        val obsoleteIds = activeConnectionIds.subtract(desiredIds)
+
+        Log.d(TAG, "Refreshing nostr connections")
+        Log.d(TAG, "- Desired: $desiredId")
+        Log.d(TAG, "- New: $newIds, Obsolete: $obsoleteIds")
+
+        if (activeConnectionIds == desiredIds) {
             Log.d(TAG, "- No action required.")
             return
         }
 
-        // Open new connections
-        newConnectionIds.forEach { connectionId ->
-            val serviceActive = { isServiceStarted }
-            val user = repository.getUser(connectionId.baseUrl)
-            val customHeaders = repository.getCustomHeaders(connectionId.baseUrl)
-            val connection = if (connectionId.connectionProtocol == Repository.CONNECTION_PROTOCOL_WS) {
-                val alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
-                val httpClient = HttpUtil.wsClient(this, connectionId.baseUrl)
-                WsConnection(connectionId, repository, httpClient, user, customHeaders, ::onConnectionDetailsChanged, ::onNotificationReceived, alarmManager)
-            } else {
-                JsonConnection(connectionId, repository, api, user, ::onConnectionDetailsChanged, ::onNotificationReceived, serviceActive)
-            }
+        // Open new connection
+        newIds.forEach { connectionId ->
+            val alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
+            val connection = NostrConnection(
+                connectionId = connectionId,
+                repository = repository,
+                keyManager = keyManager,
+                connectionDetailsListener = ::onConnectionDetailsChanged,
+                notificationListener = ::onNotificationReceived,
+                alarmManager = alarmManager
+            )
             connections[connectionId] = connection
             connection.start()
         }
 
-        // Close connections without subscriptions
-        obsoleteConnectionIds.forEach { connectionId ->
-            val connection = connections.remove(connectionId)
-            connection?.close()
-        }
+        // Close obsolete connections
+        obsoleteIds.forEach { connectionId -> connections.remove(connectionId)?.close() }
+
         // Update foreground service notification popup
         if (connections.isNotEmpty()) {
             val title = getString(R.string.channel_subscriber_notification_title)
-            val text = if (BuildConfig.FIREBASE_AVAILABLE) {
-                when (instantSubscriptions.size) {
-                    1 -> getString(R.string.channel_subscriber_notification_instant_text_one)
-                    2 -> getString(R.string.channel_subscriber_notification_instant_text_two)
-                    3 -> getString(R.string.channel_subscriber_notification_instant_text_three)
-                    4 -> getString(R.string.channel_subscriber_notification_instant_text_four)
-                    5 -> getString(R.string.channel_subscriber_notification_instant_text_five)
-                    6 -> getString(R.string.channel_subscriber_notification_instant_text_six)
-                    else -> getString(R.string.channel_subscriber_notification_instant_text_more, instantSubscriptions.size)
-                }
-            } else {
-                when (instantSubscriptions.size) {
-                    1 -> getString(R.string.channel_subscriber_notification_noinstant_text_one)
-                    2 -> getString(R.string.channel_subscriber_notification_noinstant_text_two)
-                    3 -> getString(R.string.channel_subscriber_notification_noinstant_text_three)
-                    4 -> getString(R.string.channel_subscriber_notification_noinstant_text_four)
-                    5 -> getString(R.string.channel_subscriber_notification_noinstant_text_five)
-                    6 -> getString(R.string.channel_subscriber_notification_noinstant_text_six)
-                    else -> getString(R.string.channel_subscriber_notification_noinstant_text_more, instantSubscriptions.size)
-                }
+            val text = when (instantSubscriptions.size) {
+                1 -> getString(R.string.channel_subscriber_notification_noinstant_text_one)
+                2 -> getString(R.string.channel_subscriber_notification_noinstant_text_two)
+                3 -> getString(R.string.channel_subscriber_notification_noinstant_text_three)
+                4 -> getString(R.string.channel_subscriber_notification_noinstant_text_four)
+                5 -> getString(R.string.channel_subscriber_notification_noinstant_text_five)
+                6 -> getString(R.string.channel_subscriber_notification_noinstant_text_six)
+                else -> getString(R.string.channel_subscriber_notification_noinstant_text_more, instantSubscriptions.size)
             }
             serviceNotification = createNotification(title, text)
             notificationManager?.notify(NOTIFICATION_SERVICE_ID, serviceNotification)
@@ -407,21 +383,21 @@ class SubscriberService : Service() {
             // - Web app: sw.js:handleMessage(), sw.js:handleMessageClear(), ...
 
             when (notification.event) {
-                ApiService.EVENT_MESSAGE_CLEAR -> {
+                NostrConstants.EVENT_MESSAGE_CLEAR -> {
                     if (notification.sequenceId.isNotEmpty()) {
                         repository.markAsReadBySequenceId(subscription.id, notification.sequenceId)
                     }
                     repository.updateLastNotificationId(subscription.id, notification.id)
                     dispatcher.dispatch(subscription, notification)
                 }
-                ApiService.EVENT_MESSAGE_DELETE -> {
+                NostrConstants.EVENT_MESSAGE_DELETE -> {
                     if (notification.sequenceId.isNotEmpty()) {
                         repository.markAsDeletedBySequenceId(subscription.id, notification.sequenceId)
                     }
                     repository.updateLastNotificationId(subscription.id, notification.id)
                     dispatcher.dispatch(subscription, notification)
                 }
-                ApiService.EVENT_MESSAGE -> {
+                NostrConstants.EVENT_MESSAGE -> {
                     val added = repository.addNotification(notification)
                     if (added) {
                         dispatcher.dispatch(subscription, notification)
@@ -546,10 +522,10 @@ class SubscriberService : Service() {
         private const val CONNECTION_ALERT_SNOOZE_SHORT_MILLIS = CONNECTION_ALERT_SNOOZE_SHORT_HOURS * ONE_HOUR_MILLIS
         private const val CONNECTION_ALERT_SNOOZE_LONG_HOURS = 8
         private const val CONNECTION_ALERT_SNOOZE_LONG_MILLIS = CONNECTION_ALERT_SNOOZE_LONG_HOURS * ONE_HOUR_MILLIS
-        private const val CONNECTION_ALERT_ACTION_DISMISS = "io.heckel.ntfy.CONNECTION_ALERT_DISMISS"
-        private const val CONNECTION_ALERT_ACTION_SNOOZE_SHORT = "io.heckel.ntfy.CONNECTION_ALERT_SNOOZE_SHORT"
-        private const val CONNECTION_ALERT_ACTION_SNOOZE_LONG = "io.heckel.ntfy.CONNECTION_ALERT_SNOOZE_LONG"
-        private const val CONNECTION_ALERT_ACTION_NEVER = "io.heckel.ntfy.CONNECTION_ALERT_NEVER"
+        private const val CONNECTION_ALERT_ACTION_DISMISS = "io.nstrfy.android.CONNECTION_ALERT_DISMISS"
+        private const val CONNECTION_ALERT_ACTION_SNOOZE_SHORT = "io.nstrfy.android.CONNECTION_ALERT_SNOOZE_SHORT"
+        private const val CONNECTION_ALERT_ACTION_SNOOZE_LONG = "io.nstrfy.android.CONNECTION_ALERT_SNOOZE_LONG"
+        private const val CONNECTION_ALERT_ACTION_NEVER = "io.nstrfy.android.CONNECTION_ALERT_NEVER"
 
         // Unique request codes for connection alert PendingIntents. These must be distinct so
         // that each PendingIntent is treated as a separate entry by the system.

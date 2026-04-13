@@ -20,7 +20,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import io.heckel.ntfy.msg.ApiService
+import io.heckel.ntfy.msg.NostrConstants
 import io.heckel.ntfy.service.NotAuthorizedException
 import io.heckel.ntfy.service.WebSocketNotSupportedException
 import io.heckel.ntfy.service.hasCause
@@ -44,6 +44,7 @@ data class Subscription(
     @ColumnInfo(name = "upConnectorToken") val upConnectorToken: String?, // UnifiedPush connector token
     @ColumnInfo(name = "displayName") val displayName: String?,
     @ColumnInfo(name = "dedicatedChannels") val dedicatedChannels: Boolean,
+    @ColumnInfo(name = "inboxMode") val inboxMode: Boolean = true, // If true, filter requires #p = userPubkey (events directed at you)
     @Ignore val totalCount: Int = 0, // Total notifications
     @Ignore val newCount: Int = 0, // New notifications
     @Ignore val lastActive: Long = 0, // Unix timestamp
@@ -63,7 +64,8 @@ data class Subscription(
         upAppId: String,
         upConnectorToken: String,
         displayName: String?,
-        dedicatedChannels: Boolean
+        dedicatedChannels: Boolean,
+        inboxMode: Boolean = true
     ) :
             this(
                 id,
@@ -80,6 +82,7 @@ data class Subscription(
                 upConnectorToken,
                 displayName,
                 dedicatedChannels,
+                inboxMode = inboxMode,
                 totalCount = 0,
                 newCount = 0,
                 lastActive = 0,
@@ -137,6 +140,7 @@ data class SubscriptionWithMetadata(
     val upConnectorToken: String?,
     val displayName: String?,
     val dedicatedChannels: Boolean,
+    val inboxMode: Boolean = true,
     val totalCount: Int,
     val newCount: Int,
     val lastActive: Long
@@ -160,7 +164,7 @@ data class Notification(
     @ColumnInfo(name = "actions") val actions: List<Action>?,
     @Embedded(prefix = "attachment_") val attachment: Attachment?,
     @ColumnInfo(name = "deleted") val deleted: Boolean,
-    @Ignore val event: String = ApiService.EVENT_MESSAGE, // In-memory event type (message, message_delete, message_clear)
+    @Ignore val event: String = NostrConstants.EVENT_MESSAGE, // In-memory event type (message, message_delete, message_clear)
 ) {
     constructor(
         id: String,
@@ -181,7 +185,7 @@ data class Notification(
         deleted: Boolean
     ) : this(
         id, subscriptionId, timestamp, sequenceId, title, message, contentType, encoding,
-        notificationId, priority, tags, click, icon, actions, attachment, deleted, event = ApiService.EVENT_MESSAGE
+        notificationId, priority, tags, click, icon, actions, attachment, deleted, event = NostrConstants.EVENT_MESSAGE
     )
 }
 
@@ -285,6 +289,28 @@ data class CustomHeader(
     @ColumnInfo(name = "value") val value: String
 )
 
+/** A nostr relay the app connects to. */
+@Entity(tableName = "Relay")
+data class Relay(
+    @PrimaryKey @ColumnInfo(name = "url") val url: String,
+    @ColumnInfo(name = "enabled") val enabled: Boolean = true
+)
+
+/**
+ * Per-topic sender allowlist entry.
+ * Only events from npubs listed here (for a given subscription) are shown as notifications.
+ * An empty allowlist for a subscription means "accept from anyone" — the UI should
+ * prevent this state to avoid spam.
+ */
+@Entity(
+    tableName = "AllowedSender",
+    primaryKeys = ["subscriptionId", "pubkeyHex"]
+)
+data class AllowedSender(
+    @ColumnInfo(name = "subscriptionId") val subscriptionId: Long,
+    @ColumnInfo(name = "pubkeyHex") val pubkeyHex: String // lowercase hex, not npub
+)
+
 @Entity(tableName = "Log")
 data class LogEntry(
     @PrimaryKey(autoGenerate = true) val id: Long, // Internal ID, only used in Repository and activities
@@ -299,7 +325,7 @@ data class LogEntry(
 }
 
 @androidx.room.Database(
-    version = 18,
+    version = 19,
     entities = [
         Subscription::class,
         Notification::class,
@@ -307,7 +333,9 @@ data class LogEntry(
         LogEntry::class,
         CustomHeader::class,
         TrustedCertificate::class,
-        ClientCertificate::class
+        ClientCertificate::class,
+        Relay::class,
+        AllowedSender::class
    ]
 )
 @TypeConverters(Converters::class)
@@ -319,6 +347,8 @@ abstract class Database : RoomDatabase() {
     abstract fun logDao(): LogDao
     abstract fun trustedCertificateDao(): TrustedCertificateDao
     abstract fun clientCertificateDao(): ClientCertificateDao
+    abstract fun relayDao(): RelayDao
+    abstract fun allowedSenderDao(): AllowedSenderDao
 
     companion object {
         @Volatile
@@ -345,6 +375,7 @@ abstract class Database : RoomDatabase() {
                     .addMigrations(MIGRATION_15_16)
                     .addMigrations(MIGRATION_16_17)
                     .addMigrations(MIGRATION_17_18)
+                    .addMigrations(MIGRATION_18_19)
                     .fallbackToDestructiveMigration(true)
                     .build()
                 this.instance = instance
@@ -485,6 +516,30 @@ abstract class Database : RoomDatabase() {
                 db.execSQL("UPDATE Notification SET sequenceId = id WHERE sequenceId = ''")
             }
         }
+
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add inboxMode to Subscription (default true = filter by #p tag)
+                db.execSQL("ALTER TABLE Subscription ADD COLUMN inboxMode INTEGER NOT NULL DEFAULT 1")
+                // Point all existing subscriptions to the nostr sentinel base URL
+                db.execSQL("UPDATE Subscription SET baseUrl = 'nostr://'")
+
+                // New: Relay table
+                db.execSQL("CREATE TABLE Relay (url TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(url))")
+                // Seed default relays
+                listOf(
+                    "wss://relay.damus.io",
+                    "wss://relay.primal.net",
+                    "wss://nos.lol",
+                    "wss://relay.nostr.band"
+                ).forEach { url ->
+                    db.execSQL("INSERT OR IGNORE INTO Relay (url, enabled) VALUES ('$url', 1)")
+                }
+
+                // New: AllowedSender table (per-topic sender allowlist)
+                db.execSQL("CREATE TABLE AllowedSender (subscriptionId INTEGER NOT NULL, pubkeyHex TEXT NOT NULL, PRIMARY KEY(subscriptionId, pubkeyHex))")
+            }
+        }
     }
 }
 
@@ -492,7 +547,7 @@ abstract class Database : RoomDatabase() {
 interface SubscriptionDao {
     @Query("""
         SELECT 
-          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels,
+          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode,
           COUNT(n.id) totalCount, 
           COUNT(CASE n.notificationId WHEN 0 THEN NULL ELSE n.id END) newCount, 
           IFNULL(MAX(n.timestamp),0) AS lastActive
@@ -505,7 +560,7 @@ interface SubscriptionDao {
 
     @Query("""
         SELECT 
-          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels,
+          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode,
           COUNT(n.id) totalCount, 
           COUNT(CASE n.notificationId WHEN 0 THEN NULL ELSE n.id END) newCount, 
           IFNULL(MAX(n.timestamp),0) AS lastActive
@@ -518,7 +573,7 @@ interface SubscriptionDao {
 
     @Query("""
         SELECT 
-          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels,
+          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode,
           COUNT(n.id) totalCount, 
           COUNT(CASE n.notificationId WHEN 0 THEN NULL ELSE n.id END) newCount, 
           IFNULL(MAX(n.timestamp),0) AS lastActive
@@ -531,7 +586,7 @@ interface SubscriptionDao {
 
     @Query("""
         SELECT 
-          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels,
+          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode,
           COUNT(n.id) totalCount, 
           COUNT(CASE n.notificationId WHEN 0 THEN NULL ELSE n.id END) newCount, 
           IFNULL(MAX(n.timestamp),0) AS lastActive
@@ -544,7 +599,7 @@ interface SubscriptionDao {
 
     @Query("""
         SELECT 
-          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels,
+          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode,
           COUNT(n.id) totalCount, 
           COUNT(CASE n.notificationId WHEN 0 THEN NULL ELSE n.id END) newCount, 
           IFNULL(MAX(n.timestamp),0) AS lastActive
@@ -731,4 +786,44 @@ interface CustomHeaderDao {
 
     @Query("DELETE FROM CustomHeader WHERE baseUrl = :baseUrl AND name = :name")
     suspend fun delete(baseUrl: String, name: String)
+}
+
+@Dao
+interface RelayDao {
+    @Query("SELECT * FROM Relay ORDER BY url")
+    fun listFlow(): Flow<List<Relay>>
+
+    @Query("SELECT * FROM Relay ORDER BY url")
+    suspend fun list(): List<Relay>
+
+    @Query("SELECT url FROM Relay WHERE enabled = 1")
+    suspend fun listEnabledUrls(): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(relay: Relay)
+
+    @Query("UPDATE Relay SET enabled = :enabled WHERE url = :url")
+    suspend fun setEnabled(url: String, enabled: Boolean)
+
+    @Query("DELETE FROM Relay WHERE url = :url")
+    suspend fun delete(url: String)
+}
+
+@Dao
+interface AllowedSenderDao {
+    @Query("SELECT pubkeyHex FROM AllowedSender WHERE subscriptionId = :subscriptionId")
+    suspend fun listForSubscription(subscriptionId: Long): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(sender: AllowedSender)
+
+    @Query("DELETE FROM AllowedSender WHERE subscriptionId = :subscriptionId AND pubkeyHex = :pubkeyHex")
+    suspend fun delete(subscriptionId: Long, pubkeyHex: String)
+
+    @Query("DELETE FROM AllowedSender WHERE subscriptionId = :subscriptionId")
+    suspend fun deleteAllForSubscription(subscriptionId: Long)
+
+    /** Returns all distinct allowed pubkeys across all subscriptions (for relay-level author filter). */
+    @Query("SELECT DISTINCT pubkeyHex FROM AllowedSender")
+    suspend fun listAllPubkeys(): List<String>
 }
