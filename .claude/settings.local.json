@@ -20,7 +20,14 @@
       "Bash(nak encode:*)",
       "Bash(./nstrfy.sh send:*)",
       "Bash(bash:*)",
-      "Bash(NPUB=npub1qmes9pz06xuggtqu2jt8mej9xf34weyz2zn93j0emyphfxzlhdaqg5dpaf bash:*)"
+      "Bash(NPUB=npub1qmes9pz06xuggtqu2jt8mej9xf34weyz2zn93j0emyphfxzlhdaqg5dpaf bash:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebSearch",
+      "Bash(grep -E \"\\\\.class$\")",
+      "Bash(grep -iE \"class$\")",
+      "Bash(unzip -l /home/vcavallo/.gradle/caches/9.2.1/transforms/af561f5194262255ac188dee2d64f854/transformed/quartz/jars/classes.jar)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:central.sonatype.com)"
     ]
   }
 }

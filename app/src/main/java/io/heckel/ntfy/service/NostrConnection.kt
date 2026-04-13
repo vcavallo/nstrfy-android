@@ -169,17 +169,22 @@ class NostrConnection(
             emptyList()
         }
 
+        // Only listen for new events (since = now). Don't replay historical events
+        // which could flood the device on public topics with lots of old notifications.
+        val sinceNow = System.currentTimeMillis() / 1000
+
         // Inbox filter: encrypted events tagged to our pubkey (#p = userPubkey)
         if (userPubkey != null) {
             val inboxFilter = Filter(
                 kinds = listOf(KIND_NSTRFY),
-                tags = mapOf("p" to listOf(userPubkey))
+                tags = mapOf("p" to listOf(userPubkey)),
+                since = sinceNow
             )
             val filterMap = connectionId.relayUrls.associate { url ->
                 val normalized = url.normalizeRelayUrl()
                 (normalized ?: NormalizedRelayUrl(url)) to listOf(inboxFilter)
             }
-            Log.d(TAG, "(gid=$globalId): Opening inbox subscription (#p=$userPubkey)")
+            Log.d(TAG, "(gid=$globalId): Opening inbox subscription (#p=$userPubkey, since=$sinceNow)")
             client.openReqSubscription(subId = SUB_INBOX, filters = filterMap)
         }
 
@@ -188,16 +193,17 @@ class NostrConnection(
         val publicFilter = if (allAllowedSenders.isNotEmpty()) {
             Filter(
                 kinds = listOf(KIND_NSTRFY),
-                authors = allAllowedSenders
+                authors = allAllowedSenders,
+                since = sinceNow
             )
         } else {
-            Filter(kinds = listOf(KIND_NSTRFY))
+            Filter(kinds = listOf(KIND_NSTRFY), since = sinceNow)
         }
         val filterMap = connectionId.relayUrls.associate { url ->
             val normalized = url.normalizeRelayUrl()
             (normalized ?: NormalizedRelayUrl(url)) to listOf(publicFilter)
         }
-        Log.d(TAG, "(gid=$globalId): Opening public subscription (${if (allAllowedSenders.isNotEmpty()) "${allAllowedSenders.size} allowed authors" else "all authors"})")
+        Log.d(TAG, "(gid=$globalId): Opening public subscription (${if (allAllowedSenders.isNotEmpty()) "${allAllowedSenders.size} allowed authors" else "all authors"}, since=$sinceNow)")
         client.openReqSubscription(subId = SUB_PUBLIC, filters = filterMap)
     }
 

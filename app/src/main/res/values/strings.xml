@@ -148,11 +148,11 @@
     <string name="add_dialog_error_ssl_untrusted">Server certificate not trusted</string>
 
     <!-- Detail activity -->
-    <string name="detail_no_notifications_text">You haven\'t received any notifications for this topic yet.</string>
-    <string name="detail_how_to_intro">To send notifications to this topic, simply PUT or POST to the topic URL.
+    <string name="detail_no_notifications_text">No notifications yet for this topic.</string>
+    <string name="detail_how_to_intro">Publish a kind 30078 event to send a notification:
     </string>
-    <string name="detail_how_to_example"><![CDATA[ Example (using curl):<br/><tt>$ curl -d \"Hi\" %1$s</tt> ]]></string>
-    <string name="detail_how_to_link">Detailed instructions available on ntfy.sh, and in the docs.
+    <string name="detail_how_to_example"><![CDATA[ Example (using nak):<br/><tt>$ nak event --kind 30078 \\<br/>  --content \'{"title":"Hi","message":"Hello!","topic":"%1$s"}\' \\<br/>  -t d=$(date +%%s) \\<br/>  --sec $(nak key generate) \\<br/>  wss://nos.lol</tt> ]]></string>
+    <string name="detail_how_to_link">See nstrfy.sh for sending encrypted notifications.
     </string>
     <string name="detail_no_search_results">Your search returned no results</string>
     <string name="detail_clear_dialog_message">Delete all of the notifications in this topic?
