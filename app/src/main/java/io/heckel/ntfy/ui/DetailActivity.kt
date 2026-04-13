@@ -293,7 +293,7 @@ class DetailActivity : AppCompatActivity(), NotificationFragment.NotificationSet
 
         // Set "how to instructions"
         val howToExample: TextView = findViewById(R.id.detail_how_to_example)
-        val howToText = getString(R.string.detail_how_to_example, topicUrl)
+        val howToText = getString(R.string.detail_how_to_example, subscriptionTopic)
         howToExample.linksClickable = true
         howToExample.text = Html.fromHtml(howToText, Html.FROM_HTML_MODE_LEGACY)
 
@@ -416,8 +416,8 @@ class DetailActivity : AppCompatActivity(), NotificationFragment.NotificationSet
         messageBarPublishButton = messageBar.findViewById(R.id.message_bar_publish_button)
         messageBarExpandButton = messageBar.findViewById(R.id.message_bar_expand_button)
 
-        // Message bar enabled: Show message bar, hide FAB
-        if (repository.getMessageBarEnabled()) {
+        // Hide write UI — nstrfy is receive-only for now
+        if (false && repository.getMessageBarEnabled()) {
             fab.visibility = View.GONE
             messageBar.visibility = View.VISIBLE
 
@@ -442,8 +442,8 @@ class DetailActivity : AppCompatActivity(), NotificationFragment.NotificationSet
                 insets
             }
         } else {
-            // Show FAB, hide message bar
-            fab.visibility = View.VISIBLE
+            // Hide all write UI — nstrfy is receive-only for now
+            fab.visibility = View.GONE
             messageBar.visibility = View.GONE
 
             fab.setOnClickListener {

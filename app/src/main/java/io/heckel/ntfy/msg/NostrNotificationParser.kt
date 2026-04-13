@@ -57,6 +57,12 @@ class NostrNotificationParser(private val keyManager: KeyManager) {
         val sequenceId = event.tags.find { it.size >= 2 && it[0] == "d" }?.get(1) ?: event.id
         val priority = parsePriority(payload.priority)
         val tagsStr = payload.tags?.joinToString(",") ?: ""
+        val senderNpub = try {
+            com.vitorpamplona.quartz.nip19Bech32.bech32.Bech32.encodeBytes(
+                "npub", com.vitorpamplona.quartz.utils.Hex.decode(senderPubkeyHex),
+                com.vitorpamplona.quartz.nip19Bech32.bech32.Bech32.Encoding.Bech32
+            )
+        } catch (e: Exception) { senderPubkeyHex }
         val notifId = deriveNotificationId(NostrConstants.NOSTR_BASE_URL, subscription.topic, sequenceId)
         val icon = payload.icon?.takeIf { it.isNotBlank() }?.let { Icon(it) }
         val actions = payload.actions?.mapNotNull { it.toAction() }
@@ -68,7 +74,7 @@ class NostrNotificationParser(private val keyManager: KeyManager) {
             sequenceId = sequenceId,
             title = payload.title ?: "",
             message = payload.message,
-            contentType = "",
+            contentType = senderNpub, // Store sender npub for display
             encoding = encryptionMethod,
             notificationId = notifId,
             priority = priority,

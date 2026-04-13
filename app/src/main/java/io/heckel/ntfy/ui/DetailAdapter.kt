@@ -116,7 +116,12 @@ class DetailAdapter(private val activity: Activity, private val lifecycleScope: 
             val unmatchedTags = unmatchedTags(splitTags(notification.tags))
             val message = maybeAppendActionErrors(formatMessage(notification), notification)
 
-            dateView.text = formatDateShort(notification.timestamp)
+            val senderNpub = notification.contentType.takeIf { it.startsWith("npub1") }
+            if (senderNpub != null) {
+                dateView.text = "${formatDateShort(notification.timestamp)}  ${senderNpub.take(12)}…${senderNpub.takeLast(6)}"
+            } else {
+                dateView.text = formatDateShort(notification.timestamp)
+            }
             when (notification.encoding) {
                 "nip44", "nip04" -> {
                     encryptionImageView.setImageResource(R.drawable.ic_lock_gray_12dp)
