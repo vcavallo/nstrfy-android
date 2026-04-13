@@ -219,11 +219,13 @@ class NostrConnection(
             }
 
             // Check sender allowlist for the matched subscription
-            val allowedSenders = repository.getAllowedSenders(parsed.subscription.id)
-            if (allowedSenders.isNotEmpty() && senderPubkey !in allowedSenders) {
-                Log.d(TAG, "(gid=$globalId): Sender $senderPubkey not in allowlist for " +
-                        "subscription '${parsed.subscription.topic}', discarding")
-                return@launch
+            if (parsed.subscription.whitelistEnabled) {
+                val allowedSenders = repository.getAllowedSenders(parsed.subscription.id)
+                if (senderPubkey !in allowedSenders) {
+                    Log.d(TAG, "(gid=$globalId): Sender $senderPubkey not in allowlist for " +
+                            "subscription '${parsed.subscription.topic}', discarding")
+                    return@launch
+                }
             }
 
             notificationListener(parsed.subscription, parsed.notification)

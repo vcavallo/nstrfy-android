@@ -698,8 +698,8 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
         newFragment.show(supportFragmentManager, AddFragment.TAG)
     }
 
-    override fun onSubscribe(topic: String, baseUrl: String, instant: Boolean) {
-        Log.d(TAG, "Adding subscription ${topicShortUrl(baseUrl, topic)} (instant = $instant)")
+    override fun onSubscribe(topic: String, baseUrl: String, instant: Boolean, whitelistEnabled: Boolean) {
+        Log.d(TAG, "Adding subscription ${topicShortUrl(baseUrl, topic)} (instant = $instant, whitelist = $whitelistEnabled)")
 
         // Add subscription to database
         val subscription = Subscription(
@@ -719,7 +719,8 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
             displayName = null,
             totalCount = 0,
             newCount = 0,
-            lastActive = Date().time/1000
+            lastActive = Date().time/1000,
+            whitelistEnabled = whitelistEnabled
         )
         viewModel.add(subscription)
 

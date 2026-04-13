@@ -26,9 +26,10 @@ class AddFragment : DialogFragment() {
     private lateinit var toolbar: MaterialToolbar
     private lateinit var actionMenuItem: MenuItem
     private lateinit var subscribeTopicText: TextInputEditText
+    private lateinit var whitelistCheckbox: CheckBox
 
     interface SubscribeListener {
-        fun onSubscribe(topic: String, baseUrl: String, instant: Boolean)
+        fun onSubscribe(topic: String, baseUrl: String, instant: Boolean, whitelistEnabled: Boolean)
     }
 
     override fun onAttach(context: Context) {
@@ -67,15 +68,23 @@ class AddFragment : DialogFragment() {
         // Topic name field
         subscribeTopicText = view.findViewById(R.id.add_dialog_subscribe_topic_text)
 
-        // Hide server URL, instant delivery, foreground description — not applicable for nostr
+        // Hide server URL fields — not applicable for nostr
         view.findViewById<View>(R.id.add_dialog_subscribe_base_url_layout)?.visibility = View.GONE
         view.findViewById<View>(R.id.add_dialog_subscribe_use_another_server_checkbox)?.visibility = View.GONE
         view.findViewById<View>(R.id.add_dialog_subscribe_use_another_server_description)?.visibility = View.GONE
-        view.findViewById<View>(R.id.add_dialog_subscribe_instant_delivery_box)?.visibility = View.GONE
         view.findViewById<View>(R.id.add_dialog_subscribe_instant_delivery_description)?.visibility = View.GONE
         view.findViewById<View>(R.id.add_dialog_subscribe_foreground_description)?.visibility = View.GONE
         view.findViewById<View>(R.id.add_dialog_subscribe_error_text)?.visibility = View.GONE
         view.findViewById<View>(R.id.add_dialog_subscribe_error_text_image)?.visibility = View.GONE
+
+        // Repurpose the instant delivery checkbox as "enable whitelist"
+        val whitelistBox = view.findViewById<View>(R.id.add_dialog_subscribe_instant_delivery_box)
+        whitelistBox?.visibility = View.VISIBLE
+        whitelistCheckbox = view.findViewById(R.id.add_dialog_subscribe_instant_delivery_checkbox)
+        whitelistCheckbox.text = getString(R.string.add_dialog_whitelist_checkbox)
+        whitelistCheckbox.isChecked = true
+        // Hide the bolt icon next to the checkbox
+        view.findViewById<View>(R.id.add_dialog_subscribe_instant_image)?.visibility = View.GONE
 
         // Validate on text change
         subscribeTopicText.addTextChangedListener(AfterChangedTextWatcher {
@@ -107,7 +116,8 @@ class AddFragment : DialogFragment() {
 
     private fun onSubscribeClick() {
         val topic = subscribeTopicText.text.toString()
-        subscribeListener.onSubscribe(topic, NostrConstants.NOSTR_BASE_URL, true)
+        val whitelistEnabled = whitelistCheckbox.isChecked
+        subscribeListener.onSubscribe(topic, NostrConstants.NOSTR_BASE_URL, true, whitelistEnabled)
         dialog?.dismiss()
     }
 

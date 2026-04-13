@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 19,
-    "identityHash": "2a1782a20f901dae0feeab8de74eafcf",
+    "identityHash": "0acfdafbd393c7307018381f1288ab3f",
     "entities": [
       {
         "tableName": "Subscription",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `baseUrl` TEXT NOT NULL, `topic` TEXT NOT NULL, `instant` INTEGER NOT NULL, `mutedUntil` INTEGER NOT NULL, `minPriority` INTEGER NOT NULL, `autoDelete` INTEGER NOT NULL, `insistent` INTEGER NOT NULL, `lastNotificationId` TEXT, `icon` TEXT, `upAppId` TEXT, `upConnectorToken` TEXT, `displayName` TEXT, `dedicatedChannels` INTEGER NOT NULL, `inboxMode` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `baseUrl` TEXT NOT NULL, `topic` TEXT NOT NULL, `instant` INTEGER NOT NULL, `mutedUntil` INTEGER NOT NULL, `minPriority` INTEGER NOT NULL, `autoDelete` INTEGER NOT NULL, `insistent` INTEGER NOT NULL, `lastNotificationId` TEXT, `icon` TEXT, `upAppId` TEXT, `upConnectorToken` TEXT, `displayName` TEXT, `dedicatedChannels` INTEGER NOT NULL, `inboxMode` INTEGER NOT NULL, `whitelistEnabled` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -90,6 +90,12 @@
           {
             "fieldPath": "inboxMode",
             "columnName": "inboxMode",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "whitelistEnabled",
+            "columnName": "whitelistEnabled",
             "affinity": "INTEGER",
             "notNull": true
           }
@@ -478,7 +484,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2a1782a20f901dae0feeab8de74eafcf')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0acfdafbd393c7307018381f1288ab3f')"
     ]
   }
 }

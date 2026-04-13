@@ -57,6 +57,10 @@
     <string name="detail_settings_appearance_icon_set_key" translatable="false">SubscriptionIconSet</string>
     <string name="detail_settings_appearance_icon_remove_key" translatable="false">SubscriptionIconRemove</string>
     <string name="detail_settings_appearance_display_name_key" translatable="false">SubscriptionDisplayName</string>
+    <string name="detail_settings_allowed_senders_header_key" translatable="false">AllowedSenders</string>
+    <string name="detail_settings_allowed_senders_enabled_key" translatable="false">AllowedSendersEnabled</string>
+    <string name="detail_settings_allowed_senders_add_npub_key" translatable="false">AllowedSendersAddNpub</string>
+    <string name="detail_settings_allowed_senders_search_key" translatable="false">AllowedSendersSearch</string>
     <string name="detail_settings_about_header_key" translatable="false">SubscriptionAbout</string>
     <string name="detail_settings_about_topic_url_key" translatable="false">SubscriptionTopicURL</string>
 

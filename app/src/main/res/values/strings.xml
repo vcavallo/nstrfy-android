@@ -543,6 +543,29 @@
     <string name="detail_settings_appearance_display_name_default_summary">%1$s (default)</string>
     <string name="detail_settings_global_setting_title">Use global setting</string>
     <string name="detail_settings_global_setting_suffix">using global setting</string>
+    <!-- Allowed Senders -->
+    <string name="detail_settings_allowed_senders_header">Allowed Senders</string>
+    <string name="detail_settings_allowed_senders_enabled_title">Enable sender whitelist</string>
+    <string name="detail_settings_allowed_senders_enabled_summary_on">Only showing notifications from whitelisted npubs</string>
+    <string name="detail_settings_allowed_senders_enabled_summary_off">Showing notifications from all senders</string>
+    <string name="detail_settings_allowed_senders_add_npub_title">Add by npub</string>
+    <string name="detail_settings_allowed_senders_add_npub_summary">Paste an npub or hex pubkey</string>
+    <string name="detail_settings_allowed_senders_search_title">Search by name</string>
+    <string name="detail_settings_allowed_senders_search_summary">Find nostr users via Web of Trust</string>
+    <string name="detail_settings_allowed_senders_add_dialog_title">Add allowed sender</string>
+    <string name="detail_settings_allowed_senders_add_dialog_message">Paste an npub (npub1…) or 64-char hex pubkey:</string>
+    <string name="detail_settings_allowed_senders_added">Sender added</string>
+    <string name="detail_settings_allowed_senders_removed">Sender removed</string>
+    <string name="detail_settings_allowed_senders_invalid">Invalid key: must be npub1… or 64-char hex</string>
+    <string name="detail_settings_allowed_senders_search_dialog_title">Search nostr users</string>
+    <string name="detail_settings_allowed_senders_search_dialog_message">Enter a name to search:</string>
+    <string name="detail_settings_allowed_senders_searching">Searching…</string>
+    <string name="detail_settings_allowed_senders_no_results">No results found</string>
+    <string name="detail_settings_allowed_senders_count">%1$d allowed senders</string>
+    <string name="detail_settings_allowed_senders_none">No senders whitelisted</string>
+
+    <string name="add_dialog_whitelist_checkbox">Enable whitelist (only show notifications from specific npubs — configure in topic settings)</string>
+
     <string name="detail_settings_about_header">About</string>
     <string name="detail_settings_about_topic_url_title">Topic URL</string>
 

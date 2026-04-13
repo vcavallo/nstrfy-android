@@ -45,6 +45,7 @@ data class Subscription(
     @ColumnInfo(name = "displayName") val displayName: String?,
     @ColumnInfo(name = "dedicatedChannels") val dedicatedChannels: Boolean,
     @ColumnInfo(name = "inboxMode") val inboxMode: Boolean = true, // If true, filter requires #p = userPubkey (events directed at you)
+    @ColumnInfo(name = "whitelistEnabled") val whitelistEnabled: Boolean = false, // If true, only accept from AllowedSender entries
     @Ignore val totalCount: Int = 0, // Total notifications
     @Ignore val newCount: Int = 0, // New notifications
     @Ignore val lastActive: Long = 0, // Unix timestamp
@@ -65,7 +66,8 @@ data class Subscription(
         upConnectorToken: String,
         displayName: String?,
         dedicatedChannels: Boolean,
-        inboxMode: Boolean = true
+        inboxMode: Boolean = true,
+        whitelistEnabled: Boolean = false
     ) :
             this(
                 id,
@@ -83,6 +85,7 @@ data class Subscription(
                 displayName,
                 dedicatedChannels,
                 inboxMode = inboxMode,
+                whitelistEnabled = whitelistEnabled,
                 totalCount = 0,
                 newCount = 0,
                 lastActive = 0,
@@ -141,6 +144,7 @@ data class SubscriptionWithMetadata(
     val displayName: String?,
     val dedicatedChannels: Boolean,
     val inboxMode: Boolean = true,
+    val whitelistEnabled: Boolean = false,
     val totalCount: Int,
     val newCount: Int,
     val lastActive: Long
@@ -521,6 +525,7 @@ abstract class Database : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Add inboxMode to Subscription (default true = filter by #p tag)
                 db.execSQL("ALTER TABLE Subscription ADD COLUMN inboxMode INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE Subscription ADD COLUMN whitelistEnabled INTEGER NOT NULL DEFAULT 1")
                 // Point all existing subscriptions to the nostr sentinel base URL
                 db.execSQL("UPDATE Subscription SET baseUrl = 'nostr://'")
 
@@ -547,7 +552,7 @@ abstract class Database : RoomDatabase() {
 interface SubscriptionDao {
     @Query("""
         SELECT 
-          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode,
+          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode, s.whitelistEnabled,
           COUNT(n.id) totalCount, 
           COUNT(CASE n.notificationId WHEN 0 THEN NULL ELSE n.id END) newCount, 
           IFNULL(MAX(n.timestamp),0) AS lastActive
@@ -560,7 +565,7 @@ interface SubscriptionDao {
 
     @Query("""
         SELECT 
-          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode,
+          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode, s.whitelistEnabled,
           COUNT(n.id) totalCount, 
           COUNT(CASE n.notificationId WHEN 0 THEN NULL ELSE n.id END) newCount, 
           IFNULL(MAX(n.timestamp),0) AS lastActive
@@ -573,7 +578,7 @@ interface SubscriptionDao {
 
     @Query("""
         SELECT 
-          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode,
+          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode, s.whitelistEnabled,
           COUNT(n.id) totalCount, 
           COUNT(CASE n.notificationId WHEN 0 THEN NULL ELSE n.id END) newCount, 
           IFNULL(MAX(n.timestamp),0) AS lastActive
@@ -586,7 +591,7 @@ interface SubscriptionDao {
 
     @Query("""
         SELECT 
-          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode,
+          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode, s.whitelistEnabled,
           COUNT(n.id) totalCount, 
           COUNT(CASE n.notificationId WHEN 0 THEN NULL ELSE n.id END) newCount, 
           IFNULL(MAX(n.timestamp),0) AS lastActive
@@ -599,7 +604,7 @@ interface SubscriptionDao {
 
     @Query("""
         SELECT 
-          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode,
+          s.id, s.baseUrl, s.topic, s.instant, s.mutedUntil, s.minPriority, s.autoDelete, s.insistent, s.lastNotificationId, s.icon, s.upAppId, s.upConnectorToken, s.displayName, s.dedicatedChannels, s.inboxMode, s.whitelistEnabled,
           COUNT(n.id) totalCount, 
           COUNT(CASE n.notificationId WHEN 0 THEN NULL ELSE n.id END) newCount, 
           IFNULL(MAX(n.timestamp),0) AS lastActive
@@ -632,6 +637,9 @@ interface SubscriptionDao {
 
     @Query("UPDATE subscription SET icon = :icon WHERE id = :subscriptionId")
     fun updateSubscriptionIcon(subscriptionId: Long, icon: String?)
+
+    @Query("UPDATE Subscription SET whitelistEnabled = :enabled WHERE id = :subscriptionId")
+    fun updateWhitelistEnabled(subscriptionId: Long, enabled: Boolean)
 
     @Query("DELETE FROM subscription WHERE id = :subscriptionId")
     fun remove(subscriptionId: Long)

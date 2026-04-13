@@ -94,6 +94,10 @@ class Repository(private val sharedPrefs: SharedPreferences, database: Database)
         subscriptionDao.update(subscription)
     }
 
+    fun updateWhitelistEnabled(subscriptionId: Long, enabled: Boolean) {
+        subscriptionDao.updateWhitelistEnabled(subscriptionId, enabled)
+    }
+
     fun updateSubscriptionIcon(subscriptionId: Long, icon: String?) {
         subscriptionDao.updateSubscriptionIcon(subscriptionId, icon)
     }
@@ -567,6 +571,7 @@ class Repository(private val sharedPrefs: SharedPreferences, database: Database)
                 newCount = s.newCount,
                 lastActive = s.lastActive,
                 inboxMode = s.inboxMode,
+                whitelistEnabled = s.whitelistEnabled,
                 connectionDetails = connectionDetails[s.baseUrl] ?: ConnectionDetails()
             )
         }
@@ -595,6 +600,7 @@ class Repository(private val sharedPrefs: SharedPreferences, database: Database)
             newCount = s.newCount,
             lastActive = s.lastActive,
             inboxMode = s.inboxMode,
+            whitelistEnabled = s.whitelistEnabled,
             connectionDetails = connectionDetails[s.baseUrl] ?: ConnectionDetails()
         )
     }

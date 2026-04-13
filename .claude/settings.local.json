@@ -19,7 +19,8 @@
       "Bash(nak key:*)",
       "Bash(nak encode:*)",
       "Bash(./nstrfy.sh send:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(NPUB=npub1qmes9pz06xuggtqu2jt8mej9xf34weyz2zn93j0emyphfxzlhdaqg5dpaf bash:*)"
     ]
   }
 }

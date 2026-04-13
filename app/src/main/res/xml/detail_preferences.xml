@@ -66,6 +66,22 @@
                 app:isPreferenceVisible="false"/>
     </PreferenceCategory>
     <PreferenceCategory
+        app:key="@string/detail_settings_allowed_senders_header_key"
+        app:title="@string/detail_settings_allowed_senders_header">
+        <SwitchPreferenceCompat
+                app:key="@string/detail_settings_allowed_senders_enabled_key"
+                app:title="@string/detail_settings_allowed_senders_enabled_title"
+                app:persistent="false"/>
+        <Preference
+                app:key="@string/detail_settings_allowed_senders_add_npub_key"
+                app:title="@string/detail_settings_allowed_senders_add_npub_title"
+                app:summary="@string/detail_settings_allowed_senders_add_npub_summary"/>
+        <Preference
+                app:key="@string/detail_settings_allowed_senders_search_key"
+                app:title="@string/detail_settings_allowed_senders_search_title"
+                app:summary="@string/detail_settings_allowed_senders_search_summary"/>
+    </PreferenceCategory>
+    <PreferenceCategory
         app:key="@string/detail_settings_about_header_key"
         app:title="@string/detail_settings_about_header">
         <Preference

@@ -22,6 +22,10 @@ import io.heckel.ntfy.BuildConfig
 import io.heckel.ntfy.R
 import io.heckel.ntfy.db.Repository
 import io.heckel.ntfy.db.Subscription
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.vitorpamplona.quartz.nip01Core.core.Event
+import com.vitorpamplona.quartz.nip19Bech32.bech32.Bech32
+import com.vitorpamplona.quartz.utils.Hex
 import io.heckel.ntfy.msg.DownloadAttachmentWorker
 import io.heckel.ntfy.msg.NotificationService
 import io.heckel.ntfy.service.SubscriberServiceManager
@@ -151,6 +155,7 @@ class DetailSettingsActivity : AppCompatActivity() {
             }
             loadDisplayNamePref()
             loadTopicUrlPref()
+            loadAllowedSendersPrefs()
         }
 
         private fun loadInstantPref() {
@@ -505,9 +510,357 @@ class DetailSettingsActivity : AppCompatActivity() {
             }
         }
 
+        private fun loadAllowedSendersPrefs() {
+            val context = context ?: return
+
+            // Whitelist enabled toggle — fully manual, no preference persistence framework
+            val enabledPrefId = context.getString(R.string.detail_settings_allowed_senders_enabled_key)
+            val enabledPref: SwitchPreferenceCompat? = findPreference(enabledPrefId)
+            enabledPref?.isPersistent = false
+            enabledPref?.isChecked = subscription.whitelistEnabled
+            enabledPref?.onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, newValue ->
+                val enabled = newValue as Boolean
+                subscription = subscription.copy(whitelistEnabled = enabled)
+                val subId = subscription.id
+                lifecycleScope.launch(Dispatchers.IO) {
+                    repository.updateWhitelistEnabled(subId, enabled)
+                    serviceManager.refresh()
+                }
+                true
+            }
+            enabledPref?.summaryProvider = Preference.SummaryProvider<SwitchPreferenceCompat> { pref ->
+                if (pref.isChecked) {
+                    getString(R.string.detail_settings_allowed_senders_enabled_summary_on)
+                } else {
+                    getString(R.string.detail_settings_allowed_senders_enabled_summary_off)
+                }
+            }
+
+            // Dynamically add existing senders to the preference category
+            val headerPrefId = context.getString(R.string.detail_settings_allowed_senders_header_key)
+            val headerCategory: PreferenceCategory? = findPreference(headerPrefId)
+
+            fun refreshSenderList() {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val senders = repository.getAllowedSenders(subscription.id)
+                    activity?.runOnUiThread {
+                        // Remove dynamically-added sender prefs (keep the 3 static ones)
+                        val toRemove = mutableListOf<Preference>()
+                        for (i in 0 until (headerCategory?.preferenceCount ?: 0)) {
+                            val pref = headerCategory?.getPreference(i)
+                            if (pref?.key?.startsWith("sender_") == true) {
+                                toRemove.add(pref)
+                            }
+                        }
+                        toRemove.forEach { headerCategory?.removePreference(it) }
+
+                        // Add sender prefs
+                        senders.forEach { pubkeyHex ->
+                            val npub = try {
+                                Bech32.encodeBytes("npub", Hex.decode(pubkeyHex), Bech32.Encoding.Bech32)
+                            } catch (e: Exception) { pubkeyHex }
+                            val pref = Preference(context)
+                            pref.key = "sender_$pubkeyHex"
+                            pref.title = npub.take(20) + "…" + npub.takeLast(8)
+                            pref.summary = "Tap to remove"
+                            pref.onPreferenceClickListener = OnPreferenceClickListener {
+                                MaterialAlertDialogBuilder(context)
+                                    .setTitle(getString(R.string.detail_settings_allowed_senders_removed))
+                                    .setMessage("Remove ${npub.take(20)}…?")
+                                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                                        lifecycleScope.launch(Dispatchers.IO) {
+                                            repository.removeAllowedSender(subscription.id, pubkeyHex)
+                                            activity?.runOnUiThread { refreshSenderList() }
+                                        }
+                                    }
+                                    .setNegativeButton(android.R.string.cancel, null)
+                                    .show()
+                                true
+                            }
+                            headerCategory?.addPreference(pref)
+                        }
+                    }
+                }
+            }
+            refreshSenderList()
+
+            // Add by npub
+            val addNpubPrefId = context.getString(R.string.detail_settings_allowed_senders_add_npub_key)
+            val addNpubPref: Preference? = findPreference(addNpubPrefId)
+            addNpubPref?.onPreferenceClickListener = OnPreferenceClickListener {
+                val input = android.widget.EditText(context)
+                input.hint = "npub1… or hex"
+                MaterialAlertDialogBuilder(context)
+                    .setTitle(getString(R.string.detail_settings_allowed_senders_add_dialog_title))
+                    .setMessage(getString(R.string.detail_settings_allowed_senders_add_dialog_message))
+                    .setView(input)
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        val raw = input.text.toString().trim()
+                        val hexKey = try {
+                            if (raw.startsWith("npub1")) {
+                                val decoded = Bech32.decodeBytes(raw)
+                                require(decoded.first == "npub")
+                                Hex.encode(decoded.second)
+                            } else if (Hex.isHex64(raw)) {
+                                raw.lowercase()
+                            } else {
+                                throw IllegalArgumentException("Invalid")
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, getString(R.string.detail_settings_allowed_senders_invalid), Toast.LENGTH_LONG).show()
+                            return@setPositiveButton
+                        }
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            repository.addAllowedSender(subscription.id, hexKey)
+                            activity?.runOnUiThread {
+                                Toast.makeText(context, getString(R.string.detail_settings_allowed_senders_added), Toast.LENGTH_SHORT).show()
+                                refreshSenderList()
+                            }
+                        }
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+                true
+            }
+
+            // Search by name (WoT via brainstorm.world)
+            val searchPrefId = context.getString(R.string.detail_settings_allowed_senders_search_key)
+            val searchPref: Preference? = findPreference(searchPrefId)
+            searchPref?.onPreferenceClickListener = OnPreferenceClickListener {
+                showWotSearchDialog(refreshSenderList = { refreshSenderList() })
+                true
+            }
+        }
+
+        data class WotProfile(val pubkeyHex: String, val npub: String, val displayName: String, val avatarUrl: String?)
+
+        private fun showWotSearchDialog(refreshSenderList: () -> Unit) {
+            val context = context ?: return
+            val dialogView = layoutInflater.inflate(R.layout.dialog_wot_search, null)
+            val searchInput = dialogView.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.wot_search_input)
+            val progressBar = dialogView.findViewById<android.widget.ProgressBar>(R.id.wot_search_progress)
+            val statusText = dialogView.findViewById<android.widget.TextView>(R.id.wot_search_status)
+            val resultsList = dialogView.findViewById<android.widget.ListView>(R.id.wot_search_results)
+
+            val profiles = mutableListOf<WotProfile>()
+            val adapter = WotProfileAdapter(context, profiles)
+            resultsList.adapter = adapter
+
+            val dialog = MaterialAlertDialogBuilder(context)
+                .setTitle(getString(R.string.detail_settings_allowed_senders_search_dialog_title))
+                .setView(dialogView)
+                .setNegativeButton(android.R.string.cancel, null)
+                .create()
+
+            var activeWebSocket: okhttp3.WebSocket? = null
+            var searchJob: Job? = null
+
+            // Tap a result to add
+            resultsList.setOnItemClickListener { _, _, position, _ ->
+                val selected = profiles[position]
+                lifecycleScope.launch(Dispatchers.IO) {
+                    repository.addAllowedSender(subscription.id, selected.pubkeyHex)
+                    activity?.runOnUiThread {
+                        Toast.makeText(context, getString(R.string.detail_settings_allowed_senders_added), Toast.LENGTH_SHORT).show()
+                        refreshSenderList()
+                        dialog.dismiss()
+                    }
+                }
+            }
+
+            val userPubkey = try {
+                (requireActivity().application as io.heckel.ntfy.app.Application).keyManager.getPubKeyHex()
+            } catch (e: Exception) { "" }
+
+            val okHttpClient = okhttp3.OkHttpClient.Builder()
+                .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
+                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+            fun doSearch(query: String) {
+                // Cancel previous search
+                activeWebSocket?.close(1000, "new search")
+                profiles.clear()
+                adapter.notifyDataSetChanged()
+
+                if (query.length < 2) {
+                    progressBar.visibility = android.view.View.GONE
+                    statusText.visibility = android.view.View.GONE
+                    return
+                }
+
+                progressBar.visibility = android.view.View.VISIBLE
+                statusText.visibility = android.view.View.VISIBLE
+                statusText.text = getString(R.string.detail_settings_allowed_senders_searching)
+
+                val searchStr = if (userPubkey.isNotEmpty()) {
+                    "$query observer:$userPubkey sort:followers:desc filter:rank:gte:2"
+                } else {
+                    query
+                }
+
+                val request = okhttp3.Request.Builder()
+                    .url("wss://brainstorm.world/relay")
+                    .build()
+
+                activeWebSocket = okHttpClient.newWebSocket(request, object : okhttp3.WebSocketListener() {
+                    override fun onOpen(ws: okhttp3.WebSocket, response: okhttp3.Response) {
+                        val escapedSearch = searchStr.replace("\"", "\\\"")
+                        val req = """["REQ","wot-search",{"kinds":[0],"limit":15,"search":"$escapedSearch"}]"""
+                        ws.send(req)
+                    }
+                    override fun onMessage(ws: okhttp3.WebSocket, text: String) {
+                        try {
+                            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }
+                            val arr = json.parseToJsonElement(text)
+                            if (arr is kotlinx.serialization.json.JsonArray && arr.size >= 3) {
+                                val type = arr[0].toString().trim('"')
+                                if (type == "EVENT") {
+                                    val eventObj = arr[2] as? kotlinx.serialization.json.JsonObject ?: return
+                                    val pubkey = eventObj["pubkey"]?.toString()?.trim('"') ?: return
+                                    val contentRaw = eventObj["content"]?.toString() ?: "{}"
+                                    // Content is a JSON string inside a JSON string — remove outer quotes and unescape
+                                    val content = if (contentRaw.startsWith("\"") && contentRaw.endsWith("\"")) {
+                                        contentRaw.substring(1, contentRaw.length - 1)
+                                            .replace("\\\"", "\"")
+                                            .replace("\\\\", "\\")
+                                            .replace("\\/", "/")
+                                            .replace("\\n", "\n")
+                                    } else contentRaw
+                                    val contentObj = try {
+                                        json.parseToJsonElement(content) as? kotlinx.serialization.json.JsonObject
+                                    } catch (e: Exception) { null }
+                                    val name = contentObj?.get("display_name")?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
+                                        ?: contentObj?.get("name")?.toString()?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
+                                        ?: pubkey.take(16)
+                                    val avatarUrl = contentObj?.get("picture")?.toString()?.trim('"')?.takeIf { it.startsWith("http") }
+                                    val npub = try {
+                                        Bech32.encodeBytes("npub", Hex.decode(pubkey), Bech32.Encoding.Bech32)
+                                    } catch (e: Exception) { pubkey }
+                                    val profile = WotProfile(pubkey, npub, name, avatarUrl)
+                                    activity?.runOnUiThread {
+                                        profiles.add(profile)
+                                        adapter.notifyDataSetChanged()
+                                        statusText.text = "${profiles.size} results"
+                                    }
+                                } else if (type == "EOSE") {
+                                    ws.close(1000, "done")
+                                    activity?.runOnUiThread {
+                                        progressBar.visibility = android.view.View.GONE
+                                        if (profiles.isEmpty()) {
+                                            statusText.text = getString(R.string.detail_settings_allowed_senders_no_results)
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "WoT search parse error: ${e.message}")
+                        }
+                    }
+                    override fun onFailure(ws: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) {
+                        Log.w(TAG, "WoT search failed: ${t.message}")
+                        activity?.runOnUiThread {
+                            progressBar.visibility = android.view.View.GONE
+                            statusText.text = "Search failed: ${t.message}"
+                        }
+                    }
+                })
+            }
+
+            // Debounced search on text change
+            searchInput.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    searchJob?.cancel()
+                    searchJob = lifecycleScope.launch {
+                        delay(300)
+                        doSearch(s?.toString()?.trim() ?: "")
+                    }
+                }
+            })
+
+            dialog.setOnDismissListener {
+                activeWebSocket?.close(1000, "dialog closed")
+                searchJob?.cancel()
+            }
+
+            dialog.show()
+
+            // Auto-focus the search input
+            searchInput.postDelayed({
+                searchInput.requestFocus()
+                val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+                imm?.showSoftInput(searchInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }, 200)
+        }
+
+        private inner class WotProfileAdapter(
+            context: android.content.Context,
+            private val profiles: List<WotProfile>
+        ) : android.widget.ArrayAdapter<WotProfile>(context, R.layout.item_wot_profile, profiles) {
+            private val inflater = android.view.LayoutInflater.from(context)
+            private val avatarCache = java.util.concurrent.ConcurrentHashMap<String, android.graphics.Bitmap?>()
+            private val okHttpClient = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+            override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup): android.view.View {
+                val view = convertView ?: inflater.inflate(R.layout.item_wot_profile, parent, false)
+                val profile = profiles[position]
+
+                val nameView = view.findViewById<android.widget.TextView>(R.id.wot_profile_name)
+                val npubView = view.findViewById<android.widget.TextView>(R.id.wot_profile_npub)
+                val avatarView = view.findViewById<android.widget.ImageView>(R.id.wot_profile_avatar)
+
+                nameView.text = profile.displayName
+                npubView.text = profile.npub
+
+                // Load avatar (tag the view to prevent recycling bugs)
+                val avatarUrl = profile.avatarUrl
+                avatarView.tag = avatarUrl
+                if (avatarUrl != null) {
+                    val cached = avatarCache[avatarUrl]
+                    if (cached != null) {
+                        avatarView.setImageBitmap(cached)
+                    } else {
+                        avatarView.setImageResource(R.drawable.ic_notification)
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            try {
+                                val request = okhttp3.Request.Builder().url(avatarUrl).build()
+                                val response = okHttpClient.newCall(request).execute()
+                                val bytes = response.body?.bytes()
+                                if (bytes != null) {
+                                    val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                    if (bitmap != null) {
+                                        avatarCache[avatarUrl] = bitmap
+                                        activity?.runOnUiThread {
+                                            // Only set if this view still expects this URL
+                                            if (avatarView.tag == avatarUrl) {
+                                                avatarView.setImageBitmap(bitmap)
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                // Ignore avatar load failures
+                            }
+                        }
+                    }
+                } else {
+                    avatarView.setImageResource(R.drawable.ic_notification)
+                }
+
+                return view
+            }
+        }
+
         private fun save(newSubscription: Subscription, refresh: Boolean = false) {
             subscription = newSubscription
-            lifecycleScope.launch(Dispatchers.IO) {
+            // Use application scope so the write isn't cancelled when the fragment is destroyed
+            val appScope = (requireActivity().application as io.heckel.ntfy.app.Application).ioScope
+            appScope.launch {
                 repository.updateSubscription(newSubscription)
                 if (refresh) {
                     SubscriberServiceManager.refresh(requireContext())
