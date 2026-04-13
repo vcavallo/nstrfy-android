@@ -161,6 +161,7 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
         private lateinit var repository: Repository
         private lateinit var serviceManager: SubscriberServiceManager
         private var autoDownloadSelection = AUTO_DOWNLOAD_SELECTION_NOT_SET
+        private var onRelaysUpdated: (() -> Unit)? = null
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.main_preferences, rootKey)
@@ -203,7 +204,16 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                         keyManager.storeAmberLogin(pubkey, packageName)
                         Toast.makeText(context, getString(R.string.settings_nostr_identity_amber_login_success), Toast.LENGTH_SHORT).show()
                         refreshIdentityUI(keyManager, npubPref, importKeyPref, generateKeyPref, exportKeyPref, amberLoginPref, amberDisconnectPref)
-                        serviceManager.refresh()
+                        // Fetch user's relay list (NIP-65 kind 10002) and add to our relays
+                        val pubkeyHex = try { keyManager.getPubKeyHex() } catch (e: Exception) { null }
+                        if (pubkeyHex != null) {
+                            fetchAndAddUserRelays(pubkeyHex) {
+                                onRelaysUpdated?.invoke()
+                                serviceManager.refresh()
+                            }
+                        } else {
+                            serviceManager.refresh()
+                        }
                     } else {
                         Toast.makeText(context, getString(R.string.settings_nostr_identity_amber_login_failed), Toast.LENGTH_LONG).show()
                     }
@@ -338,6 +348,7 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                 }
             }
             refreshRelaySummary()
+            onRelaysUpdated = { refreshRelaySummary() }
             relaysPref?.onPreferenceClickListener = OnPreferenceClickListener {
                 lifecycleScope.launch(Dispatchers.IO) {
                     val relays = repository.getAllRelays()
@@ -964,6 +975,93 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                 val context = context ?: return@OnPreferenceClickListener false
                 copyToClipboard(context, "ntfy version", version)
                 true
+            }
+        }
+
+        private fun fetchAndAddUserRelays(pubkeyHex: String, onComplete: () -> Unit) {
+            val ctx = context ?: return
+            val progressDialog = MaterialAlertDialogBuilder(ctx)
+                .setTitle("Setting up relays")
+                .setMessage("Fetching your relay list from nostr...")
+                .setCancelable(false)
+                .create()
+            progressDialog.show()
+
+            lifecycleScope.launch(Dispatchers.IO) {
+                val repository = Repository.getInstance(requireActivity())
+                val bootstrapRelays = listOf("wss://purplepag.es", "wss://relay.damus.io", "wss://nos.lol")
+                val relayUrls = mutableSetOf<String>()
+
+                for (bootstrapRelay in bootstrapRelays) {
+                    if (relayUrls.isNotEmpty()) break
+                    try {
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                            .build()
+                        val request = okhttp3.Request.Builder().url(bootstrapRelay).build()
+                        val latch = java.util.concurrent.CountDownLatch(1)
+                        client.newWebSocket(request, object : okhttp3.WebSocketListener() {
+                            override fun onOpen(ws: okhttp3.WebSocket, response: okhttp3.Response) {
+                                val req = """["REQ","relay-list",{"kinds":[10002],"authors":["$pubkeyHex"],"limit":1}]"""
+                                ws.send(req)
+                            }
+                            override fun onMessage(ws: okhttp3.WebSocket, text: String) {
+                                try {
+                                    val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }
+                                    val arr = json.parseToJsonElement(text)
+                                    if (arr is kotlinx.serialization.json.JsonArray && arr.size >= 3) {
+                                        val type = arr[0].toString().trim('"')
+                                        if (type == "EVENT") {
+                                            val eventObj = arr[2] as? kotlinx.serialization.json.JsonObject ?: return
+                                            val tags = eventObj["tags"] as? kotlinx.serialization.json.JsonArray ?: return
+                                            for (tag in tags) {
+                                                val tagArr = tag as? kotlinx.serialization.json.JsonArray ?: continue
+                                                if (tagArr.size >= 2 && tagArr[0].toString().trim('"') == "r") {
+                                                    val url = tagArr[1].toString().trim('"')
+                                                    val marker = if (tagArr.size >= 3) tagArr[2].toString().trim('"') else ""
+                                                    if (marker != "write") {
+                                                        relayUrls.add(url)
+                                                    }
+                                                }
+                                            }
+                                        } else if (type == "EOSE") {
+                                            ws.close(1000, "done")
+                                            latch.countDown()
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Relay list parse error: ${e.message}")
+                                }
+                            }
+                            override fun onFailure(ws: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) {
+                                latch.countDown()
+                            }
+                        })
+                        latch.await(15, java.util.concurrent.TimeUnit.SECONDS)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to fetch relay list from $bootstrapRelay: ${e.message}")
+                    }
+                }
+
+                var added = 0
+                for (url in relayUrls) {
+                    try {
+                        repository.addRelay(url)
+                        added++
+                    } catch (e: Exception) { }
+                }
+                Log.d(TAG, "Added $added relays from NIP-65 (${relayUrls.size} found)")
+
+                activity?.runOnUiThread {
+                    progressDialog.dismiss()
+                    if (relayUrls.isNotEmpty()) {
+                        Toast.makeText(context, "Added ${relayUrls.size} relays from your relay list", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "No relay list found — using defaults", Toast.LENGTH_SHORT).show()
+                    }
+                    onComplete()
+                }
             }
         }
 
