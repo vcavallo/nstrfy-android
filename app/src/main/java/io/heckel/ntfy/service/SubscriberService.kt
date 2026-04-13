@@ -293,6 +293,7 @@ class SubscriberService : Service() {
     private fun onPendingEncryptedEvent(event: com.vitorpamplona.quartz.nip01Core.core.Event) {
         // Store for later decryption when app comes to foreground
         pendingEncryptedEvents.add(event)
+        (application as io.heckel.ntfy.app.Application).pendingEventSignal.postValue(pendingEncryptedEvents.size)
         Log.d(TAG, "Queued encrypted event ${event.id.take(8)} for foreground decryption (${pendingEncryptedEvents.size} pending)")
 
         // Show a generic notification so the user knows something arrived

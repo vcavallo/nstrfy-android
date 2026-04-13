@@ -68,6 +68,7 @@ class NostrConnection(
     private var quartzClient: QuartzNostrClient? = null
     private var errorCount = 0
     private var closed = false
+    private val seenEventIds = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
     private val globalId = GLOBAL_ID.incrementAndGet()
 
@@ -210,20 +211,47 @@ class NostrConnection(
     }
 
     private fun handleEvent(event: Event) {
+        // Dedup: inbox and public filters can both match the same event
+        if (!seenEventIds.add(event.id)) return
+        if (seenEventIds.size > 1000) seenEventIds.clear() // Prevent unbounded growth
+
         scope.launch {
             val senderPubkey = event.pubKey
             Log.d(TAG, "(gid=$globalId): Received kind 7741 event id=${event.id.take(8)} from $senderPubkey")
 
-            // Find matching subscription(s) via topic routing
+            // If the event has a #p tag (encrypted to someone), and we're using Amber,
+            // skip background decryption entirely to avoid Amber showing prompts from the
+            // background service. Queue it for foreground decryption instead.
+            val userPubkey = try { keyManager.getPubKeyHex() } catch (e: Exception) { null }
+            val isForUs = userPubkey != null && event.tags.any {
+                it.size >= 2 && it[0] == "p" && it[1] == userPubkey
+            }
+            if (isForUs && decryptor is io.heckel.ntfy.crypto.AmberDecryptor) {
+                // Try ContentProvider silently — if it works (Always allow), great.
+                // If not, queue for foreground without showing any prompt.
+                val subscriptions = repository.getSubscriptions()
+                val parsed = parser.parse(event, subscriptions)
+                if (parsed != null) {
+                    // ContentProvider worked silently (Always allow mode)
+                    if (parsed.subscription.whitelistEnabled) {
+                        val allowedSenders = repository.getAllowedSenders(parsed.subscription.id)
+                        if (senderPubkey !in allowedSenders) {
+                            Log.d(TAG, "(gid=$globalId): Sender not in allowlist, discarding")
+                            return@launch
+                        }
+                    }
+                    notificationListener(parsed.subscription, parsed.notification)
+                } else {
+                    // ContentProvider didn't work — queue for foreground
+                    Log.d(TAG, "(gid=$globalId): Amber background decrypt failed, queuing for foreground")
+                    pendingEventListener?.invoke(event)
+                }
+                return@launch
+            }
+
+            // Non-Amber path (local key) or public events (no #p tag)
             val subscriptions = repository.getSubscriptions()
             val parsed = parser.parse(event, subscriptions) ?: run {
-                // Parse failed — if this event is addressed to us (#p tag), it's likely
-                // encrypted and we couldn't decrypt (Amber not available). Store it for
-                // later decryption when the app comes to foreground.
-                val userPubkey = try { keyManager.getPubKeyHex() } catch (e: Exception) { null }
-                val isForUs = userPubkey != null && event.tags.any {
-                    it.size >= 2 && it[0] == "p" && it[1] == userPubkey
-                }
                 if (isForUs) {
                     Log.d(TAG, "(gid=$globalId): Encrypted event for us, queuing for foreground decryption")
                     pendingEventListener?.invoke(event)

@@ -267,6 +267,11 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
             showHideConnectionErrorMenuItem(details)
         }
 
+        // React to pending encrypted events (triggers foreground Amber decrypt)
+        (application as io.heckel.ntfy.app.Application).pendingEventSignal.observe(this) { count ->
+            if (count > 0) tryDecryptPendingEvents()
+        }
+
         // Battery banner
         val batteryBanner = findViewById<View>(R.id.main_banner_battery) // Banner visibility is toggled in onResume()
         val dontAskAgainButton = findViewById<Button>(R.id.main_banner_battery_dontaskagain)
@@ -418,7 +423,6 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
         val app = application as io.heckel.ntfy.app.Application
 
         if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
-            // Extract decrypted plaintext from Amber's response
             val plaintext = result.data?.getStringExtra("result")
             if (plaintext != null) {
                 Log.d(TAG, "Foreground Amber decrypt succeeded for event ${event.id.take(8)}")
@@ -426,18 +430,20 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
                     processDecryptedEvent(event, plaintext)
                     app.pendingEncryptedEvents.remove(event)
 
-                    // Try remaining events via ContentProvider (might work now if "Always allow" was selected)
-                    tryDecryptPendingEventsViaContentProvider()
-
                     if (app.pendingEncryptedEvents.isEmpty()) {
                         val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
                         nm.cancel(2588)
                     }
-                    runOnUiThread { redrawList() }
+                    runOnUiThread {
+                        redrawList()
+                        // Process next pending event if any
+                        tryDecryptPendingEvents()
+                    }
                 }
             }
         } else {
             Log.d(TAG, "Foreground Amber decrypt was rejected or cancelled")
+            // Don't retry — user explicitly rejected
         }
     }
 
@@ -445,35 +451,28 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
         val app = application as io.heckel.ntfy.app.Application
         val pendingEvents = app.pendingEncryptedEvents
         if (pendingEvents.isEmpty()) return
+        if (foregroundDecryptEvent != null) return // Already processing one
         if (app.keyManager.getLoginMode() != io.heckel.ntfy.crypto.KeyManager.LoginMode.AMBER) return
 
-        // First try ContentProvider (works if "Always allow" was granted)
-        lifecycleScope.launch(Dispatchers.IO) {
-            tryDecryptPendingEventsViaContentProvider()
-
-            // If events remain, launch ONE foreground Intent (don't loop)
-            val remaining = app.pendingEncryptedEvents.peek()
-            if (remaining != null) {
-                val pubkeyHex = try { app.keyManager.getAmberPubKeyHex() } catch (e: Exception) { return@launch }
-                val packageName = try { app.keyManager.getAmberPackageName() } catch (e: Exception) { return@launch }
-                runOnUiThread {
-                    try {
-                        foregroundDecryptEvent = remaining
-                        val intent = com.vitorpamplona.quartz.nip55AndroidSigner.api.foreground.intents.requests
-                            .Nip44DecryptRequest.assemble(
-                                remaining.content,
-                                remaining.pubKey,
-                                pubkeyHex,
-                                packageName
-                            )
-                        Log.d(TAG, "Launching foreground Amber decrypt for event ${remaining.id.take(8)}")
-                        amberDecryptLauncher.launch(intent)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Could not launch Amber foreground decrypt: ${e.message}")
-                        foregroundDecryptEvent = null
-                    }
-                }
-            }
+        // Events in the pending queue already failed ContentProvider (that's how they got here).
+        // Go straight to foreground Intent — one at a time.
+        val firstEvent = pendingEvents.peek() ?: return
+        val pubkeyHex = try { app.keyManager.getAmberPubKeyHex() } catch (e: Exception) { return }
+        val packageName = try { app.keyManager.getAmberPackageName() } catch (e: Exception) { return }
+        try {
+            foregroundDecryptEvent = firstEvent
+            val intent = com.vitorpamplona.quartz.nip55AndroidSigner.api.foreground.intents.requests
+                .Nip44DecryptRequest.assemble(
+                    firstEvent.content,
+                    firstEvent.pubKey,
+                    pubkeyHex,
+                    packageName
+                )
+            Log.d(TAG, "Launching foreground Amber decrypt for event ${firstEvent.id.take(8)}")
+            amberDecryptLauncher.launch(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not launch Amber foreground decrypt: ${e.message}")
+            foregroundDecryptEvent = null
         }
     }
 
@@ -526,36 +525,6 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
         }
     }
 
-    private fun tryDecryptPendingEventsViaContentProvider() {
-        val app = application as io.heckel.ntfy.app.Application
-        val pendingEvents = app.pendingEncryptedEvents
-        if (pendingEvents.isEmpty()) return
-
-        val decryptor = app.createDecryptor()
-        if (!decryptor.isAvailable()) return
-
-        val parser = io.heckel.ntfy.msg.NostrNotificationParser(decryptor)
-        val subscriptions = kotlinx.coroutines.runBlocking { repository.getSubscriptions() }
-        val processed = mutableListOf<com.vitorpamplona.quartz.nip01Core.core.Event>()
-
-        for (event in pendingEvents) {
-            val parsed = kotlinx.coroutines.runBlocking { parser.parse(event, subscriptions) }
-            if (parsed != null) {
-                kotlinx.coroutines.runBlocking { repository.addNotification(parsed.notification) }
-                val dispatcher = io.heckel.ntfy.msg.NotificationDispatcher(this@MainActivity, repository)
-                dispatcher.dispatch(parsed.subscription, parsed.notification)
-                processed.add(event)
-            }
-        }
-
-        pendingEvents.removeAll(processed.toSet())
-
-        if (processed.isNotEmpty()) {
-            Log.d(TAG, "Decrypted ${processed.size} pending events via ContentProvider")
-            val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
-            nm.cancel(2588)
-        }
-    }
 
     private fun showHideBatteryBanner(subscriptions: List<Subscription>) {
         val hasInstantSubscriptions = subscriptions.count { it.instant } > 0

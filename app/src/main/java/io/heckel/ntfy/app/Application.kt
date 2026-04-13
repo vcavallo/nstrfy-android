@@ -24,6 +24,9 @@ class Application : Application() {
     /** Pending encrypted events that couldn't be decrypted in the background (Amber not available) */
     val pendingEncryptedEvents = java.util.concurrent.ConcurrentLinkedQueue<com.vitorpamplona.quartz.nip01Core.core.Event>()
 
+    /** LiveData to notify the Activity when new pending events arrive */
+    val pendingEventSignal = androidx.lifecycle.MutableLiveData<Int>(0)
+
     fun createDecryptor(): EventDecryptor = when (keyManager.getLoginMode()) {
         KeyManager.LoginMode.INTERNAL -> LocalKeyDecryptor(keyManager)
         KeyManager.LoginMode.AMBER -> AmberDecryptor(

@@ -102,18 +102,12 @@ class NostrNotificationParser(private val decryptor: EventDecryptor) {
         val hasPTag = event.tags.any { it.size >= 2 && it[0] == "p" }
 
         if (hasPTag && decryptor.isAvailable()) {
-            // 1. Try NIP-44
+            // Try NIP-44 decryption (nstrfy only uses NIP-44; skip NIP-04 to avoid
+            // double-prompting when using Amber external signer)
             val nip44Plaintext = decryptor.nip44Decrypt(event.content, senderPubKeyHex)
             if (nip44Plaintext != null) {
                 val payload = parsePayload(nip44Plaintext, "NIP-44")
                 if (payload != null) return Pair(payload, "nip44")
-            }
-
-            // 2. Fallback: NIP-04
-            val nip04Plaintext = decryptor.nip04Decrypt(event.content, senderPubKeyHex)
-            if (nip04Plaintext != null) {
-                val payload = parsePayload(nip04Plaintext, "NIP-04")
-                if (payload != null) return Pair(payload, "nip04")
             }
         }
 

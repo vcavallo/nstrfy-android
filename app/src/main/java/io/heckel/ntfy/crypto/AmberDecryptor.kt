@@ -21,30 +21,13 @@ class AmberDecryptor(
     private val nip44Query = Nip44DecryptQuery(pubKeyHex, packageName, contentResolver)
     private val nip04Query = Nip04DecryptQuery(pubKeyHex, packageName, contentResolver)
 
-    /** Callback for permission failures — set by the service layer to show a notification. */
-    var onPermissionFailure: (() -> Unit)? = null
-
     override suspend fun nip44Decrypt(ciphertext: String, senderPubKeyHex: String): String? {
         return try {
             val result = nip44Query.query(ciphertext, senderPubKeyHex)
             when (result) {
                 is SignerResult.RequestAddressed.Successful -> result.result.plaintext
-                is SignerResult.RequestAddressed.AutomaticallyRejected -> {
-                    Log.w(TAG, "NIP-44 decrypt rejected by Amber (permission denied)")
-                    onPermissionFailure?.invoke()
-                    null
-                }
-                is SignerResult.RequestIncomplete.RequiresManualApproval -> {
-                    Log.w(TAG, "NIP-44 decrypt requires manual approval in Amber")
-                    onPermissionFailure?.invoke()
-                    null
-                }
-                is SignerResult.RequestAddressed.SignerNotFound -> {
-                    Log.w(TAG, "Amber not found for NIP-44 decrypt")
-                    null
-                }
                 else -> {
-                    Log.d(TAG, "NIP-44 decrypt via Amber returned: $result")
+                    Log.d(TAG, "NIP-44 decrypt via Amber: $result")
                     null
                 }
             }
@@ -59,18 +42,8 @@ class AmberDecryptor(
             val result = nip04Query.query(ciphertext, senderPubKeyHex)
             when (result) {
                 is SignerResult.RequestAddressed.Successful -> result.result.plaintext
-                is SignerResult.RequestAddressed.AutomaticallyRejected -> {
-                    Log.w(TAG, "NIP-04 decrypt rejected by Amber (permission denied)")
-                    onPermissionFailure?.invoke()
-                    null
-                }
-                is SignerResult.RequestIncomplete.RequiresManualApproval -> {
-                    Log.w(TAG, "NIP-04 decrypt requires manual approval in Amber")
-                    onPermissionFailure?.invoke()
-                    null
-                }
                 else -> {
-                    Log.d(TAG, "NIP-04 decrypt via Amber returned: $result")
+                    Log.d(TAG, "NIP-04 decrypt via Amber: $result")
                     null
                 }
             }

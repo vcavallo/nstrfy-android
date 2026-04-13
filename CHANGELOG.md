@@ -12,6 +12,7 @@
 ### Added
 
 - author npub on notifications
+- Amber integration for addressed events
 
 ## v0.1.0
 
