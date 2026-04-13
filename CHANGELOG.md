@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## v1.2.0
+
+### Changed
+
+- Build properties for release
+
 ## v1.1.0
 
 ### Changed
