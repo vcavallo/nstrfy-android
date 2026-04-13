@@ -215,9 +215,9 @@ class SubscriberService : Service() {
         val activeConnectionIds = connections.keys().toList().toSet()
 
         // If nothing to connect, close all active connections
-        if (instantSubscriptions.isEmpty() || relayUrls.isEmpty() || !keyManager.hasKey()) {
+        if (instantSubscriptions.isEmpty() || relayUrls.isEmpty()) {
             if (activeConnectionIds.isNotEmpty()) {
-                Log.d(TAG, "Closing all nostr connections (no subs, no relays, or no key)")
+                Log.d(TAG, "Closing all nostr connections (no subs or no relays)")
                 activeConnectionIds.forEach { id -> connections.remove(id)?.close() }
             }
             return

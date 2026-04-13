@@ -46,7 +46,7 @@ class NostrNotificationParser(private val keyManager: KeyManager) {
      */
     fun parse(event: Event, subscriptions: List<Subscription>): ParsedNotification? {
         val senderPubkeyHex = event.pubKey
-        val payload = decryptOrParse(event) ?: return null
+        val (payload, encryptionMethod) = decryptOrParse(event) ?: return null
 
         // Route to subscription by topic
         val subscription = findSubscription(payload.topic, subscriptions) ?: run {
@@ -69,7 +69,7 @@ class NostrNotificationParser(private val keyManager: KeyManager) {
             title = payload.title ?: "",
             message = payload.message,
             contentType = "",
-            encoding = "",
+            encoding = encryptionMethod,
             notificationId = notifId,
             priority = priority,
             tags = tagsStr,
@@ -87,33 +87,40 @@ class NostrNotificationParser(private val keyManager: KeyManager) {
 
     // ---
 
-    private fun decryptOrParse(event: Event): NostrPayload? {
-        if (!keyManager.hasKey()) return null
-        val privKey = try { keyManager.getPrivKeyBytes() } catch (e: Exception) { return null }
-        val senderPubKeyHex = event.pubKey
-        val senderPubKeyBytes = try {
-            com.vitorpamplona.quartz.utils.Hex.decode(senderPubKeyHex)
-        } catch (e: Exception) {
-            Log.w(TAG, "Cannot decode sender pubkey $senderPubKeyHex: ${e.message}")
-            return null
-        }
+    private fun decryptOrParse(event: Event): Pair<NostrPayload, String>? {
+        // Try decryption if we have a key
+        if (keyManager.hasKey()) {
+            val privKey = try { keyManager.getPrivKeyBytes() } catch (e: Exception) { null }
+            val senderPubKeyBytes = try {
+                com.vitorpamplona.quartz.utils.Hex.decode(event.pubKey)
+            } catch (e: Exception) { null }
 
-        // 1. Try NIP-44
-        val nip44Result = runCatching { nip44.decrypt(event.content, privKey, senderPubKeyBytes) }
-        if (nip44Result.isSuccess) {
-            val plaintext = nip44Result.getOrNull() ?: return null
-            return parsePayload(plaintext, "NIP-44")
-        }
+            if (privKey != null && senderPubKeyBytes != null) {
+                // 1. Try NIP-44
+                val nip44Result = runCatching { nip44.decrypt(event.content, privKey, senderPubKeyBytes) }
+                if (nip44Result.isSuccess) {
+                    val plaintext = nip44Result.getOrNull()
+                    if (plaintext != null) {
+                        val payload = parsePayload(plaintext, "NIP-44")
+                        if (payload != null) return Pair(payload, "nip44")
+                    }
+                }
 
-        // 2. Fallback: NIP-04
-        val nip04Result = runCatching { Nip04.decrypt(event.content, privKey, senderPubKeyBytes) }
-        if (nip04Result.isSuccess) {
-            val plaintext = nip04Result.getOrNull() ?: return null
-            return parsePayload(plaintext, "NIP-04")
+                // 2. Fallback: NIP-04
+                val nip04Result = runCatching { Nip04.decrypt(event.content, privKey, senderPubKeyBytes) }
+                if (nip04Result.isSuccess) {
+                    val plaintext = nip04Result.getOrNull()
+                    if (plaintext != null) {
+                        val payload = parsePayload(plaintext, "NIP-04")
+                        if (payload != null) return Pair(payload, "nip04")
+                    }
+                }
+            }
         }
 
         // 3. Last resort: treat content as plain JSON (public/unencrypted events)
-        return parsePayload(event.content, "plain")
+        val payload = parsePayload(event.content, "plain")
+        return if (payload != null) Pair(payload, "plain") else null
     }
 
     private fun parsePayload(plaintext: String, method: String): NostrPayload? {

@@ -80,10 +80,7 @@ class NostrConnection(
             Log.d(TAG, "(gid=$globalId): Not starting, connection is closed")
             return
         }
-        if (!keyManager.hasKey()) {
-            Log.w(TAG, "(gid=$globalId): No nostr key configured, skipping connection")
-            return
-        }
+        // Key is optional — needed for inbox (encrypted) subscriptions but not for public ones
 
         Log.d(TAG, "(gid=$globalId): Starting nostr relay connection")
         connectionDetailsListener(NOSTR_SENTINEL, ConnectionState.CONNECTING, null, 0L)
@@ -159,8 +156,8 @@ class NostrConnection(
 
     private suspend fun openSubscriptions(client: QuartzNostrClient) {
         val userPubkey = try { keyManager.getPubKeyHex() } catch (e: Exception) {
-            Log.e(TAG, "(gid=$globalId): Cannot get pubkey, skipping subscription: ${e.message}")
-            return
+            Log.d(TAG, "(gid=$globalId): No pubkey available, inbox subscriptions will be skipped")
+            null
         }
 
         // Build author set: union of all per-subscription allowlists
@@ -172,13 +169,8 @@ class NostrConnection(
             emptyList()
         }
 
-        val hasInboxSubs = connectionId.inboxSubscriptionIds.isNotEmpty()
-        val hasPublicSubs = connectionId.topicsToSubscriptionIds.any {
-            it.value !in connectionId.inboxSubscriptionIds
-        }
-
-        // Inbox filter: events tagged to our pubkey (#p = userPubkey)
-        if (hasInboxSubs) {
+        // Inbox filter: encrypted events tagged to our pubkey (#p = userPubkey)
+        if (userPubkey != null) {
             val inboxFilter = Filter(
                 kinds = listOf(KIND_NSTRFY),
                 tags = mapOf("p" to listOf(userPubkey))
@@ -191,19 +183,22 @@ class NostrConnection(
             client.openReqSubscription(subId = SUB_INBOX, filters = filterMap)
         }
 
-        // Public filter: events from allowlisted authors (no #p routing required)
-        if (hasPublicSubs && allAllowedSenders.isNotEmpty()) {
-            val publicFilter = Filter(
+        // Public filter: all kind 30078 events (topic + sender filtering is client-side)
+        // This catches public/unencrypted events that don't have a #p tag
+        val publicFilter = if (allAllowedSenders.isNotEmpty()) {
+            Filter(
                 kinds = listOf(KIND_NSTRFY),
                 authors = allAllowedSenders
             )
-            val filterMap = connectionId.relayUrls.associate { url ->
-                val normalized = url.normalizeRelayUrl()
-                (normalized ?: NormalizedRelayUrl(url)) to listOf(publicFilter)
-            }
-            Log.d(TAG, "(gid=$globalId): Opening public subscription (${allAllowedSenders.size} allowed authors)")
-            client.openReqSubscription(subId = SUB_PUBLIC, filters = filterMap)
+        } else {
+            Filter(kinds = listOf(KIND_NSTRFY))
         }
+        val filterMap = connectionId.relayUrls.associate { url ->
+            val normalized = url.normalizeRelayUrl()
+            (normalized ?: NormalizedRelayUrl(url)) to listOf(publicFilter)
+        }
+        Log.d(TAG, "(gid=$globalId): Opening public subscription (${if (allAllowedSenders.isNotEmpty()) "${allAllowedSenders.size} allowed authors" else "all authors"})")
+        client.openReqSubscription(subId = SUB_PUBLIC, filters = filterMap)
     }
 
     private fun handleEvent(event: Event) {

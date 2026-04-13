@@ -76,12 +76,22 @@
                 android:layout_marginStart="12dp" android:textStyle="bold"
                 app:layout_constraintTop_toBottomOf="@+id/detail_item_date_text" app:layout_constraintEnd_toStartOf="@id/detail_item_icon" android:layout_marginEnd="6dp" tools:layout_constraintEnd_toStartOf="@id/detail_item_icon"/>
         <ImageView
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                app:srcCompat="@drawable/ic_lock_open_gray_12dp"
+                android:id="@+id/detail_item_encryption_image"
+                app:layout_constraintStart_toEndOf="@+id/detail_item_date_text"
+                app:layout_constraintTop_toTopOf="@+id/detail_item_date_text"
+                app:layout_constraintBottom_toBottomOf="@+id/detail_item_date_text"
+                android:layout_marginStart="5dp"
+                android:visibility="gone"/>
+        <ImageView
                 android:layout_width="16dp"
                 android:layout_height="16dp" app:srcCompat="@drawable/ic_priority_5_24dp"
                 android:id="@+id/detail_item_priority_image"
-                app:layout_constraintStart_toEndOf="@+id/detail_item_date_text"
+                app:layout_constraintStart_toEndOf="@+id/detail_item_encryption_image"
                 app:layout_constraintTop_toTopOf="@+id/detail_item_date_text"
-                app:layout_constraintBottom_toBottomOf="@+id/detail_item_date_text" android:layout_marginStart="5dp"/>
+                app:layout_constraintBottom_toBottomOf="@+id/detail_item_date_text" android:layout_marginStart="3dp"/>
         <com.google.android.material.imageview.ShapeableImageView
                 android:layout_width="fill_parent"
                 android:layout_height="wrap_content" app:srcCompat="@drawable/ic_cancel_gray_24dp"

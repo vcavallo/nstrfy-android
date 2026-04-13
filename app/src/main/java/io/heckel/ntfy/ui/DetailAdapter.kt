@@ -98,6 +98,7 @@ class DetailAdapter(private val activity: Activity, private val lifecycleScope: 
         private val titleView: TextView = itemView.findViewById(R.id.detail_item_title_text)
         private val messageView: TextView = itemView.findViewById(R.id.detail_item_message_text)
         private val iconView: ImageView = itemView.findViewById(R.id.detail_item_icon)
+        private val encryptionImageView: ImageView = itemView.findViewById(R.id.detail_item_encryption_image)
         private val newDotImageView: View = itemView.findViewById(R.id.detail_item_new_dot)
         private val tagsView: TextView = itemView.findViewById(R.id.detail_item_tags_text)
         private val menuButton: ImageButton = itemView.findViewById(R.id.detail_item_menu_button)
@@ -116,6 +117,17 @@ class DetailAdapter(private val activity: Activity, private val lifecycleScope: 
             val message = maybeAppendActionErrors(formatMessage(notification), notification)
 
             dateView.text = formatDateShort(notification.timestamp)
+            when (notification.encoding) {
+                "nip44", "nip04" -> {
+                    encryptionImageView.setImageResource(R.drawable.ic_lock_gray_12dp)
+                    encryptionImageView.visibility = View.VISIBLE
+                }
+                "plain" -> {
+                    encryptionImageView.setImageResource(R.drawable.ic_lock_open_gray_12dp)
+                    encryptionImageView.visibility = View.VISIBLE
+                }
+                else -> encryptionImageView.visibility = View.GONE
+            }
             if (notification.isMarkdown()) {
                 messageView.autoLinkMask = 0
                 markwon.setMarkdown(messageView, message.toString())
