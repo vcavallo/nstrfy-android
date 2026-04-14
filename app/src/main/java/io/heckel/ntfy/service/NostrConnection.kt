@@ -91,6 +91,7 @@ class NostrConnection(
         val okHttpClient = OkHttpClient.Builder()
             .readTimeout(0, TimeUnit.SECONDS)
             .connectTimeout(15, TimeUnit.SECONDS)
+            .pingInterval(60, TimeUnit.SECONDS) // Detect dead sockets within ~2min
             .build()
         val wsBuilder = BasicOkHttpWebSocket.Builder { okHttpClient }
         val client = QuartzNostrClient(wsBuilder, scope)
@@ -113,6 +114,8 @@ class NostrConnection(
                 Log.w(TAG, "(gid=$globalId): Disconnected from ${relay.url.url}")
                 if (!closed) {
                     connectionDetailsListener(NOSTR_SENTINEL, ConnectionState.CONNECTING, null, 0L)
+                    // Actively schedule a reconnect — don't rely on Quartz's internal logic alone
+                    onConnectionError(Exception("WebSocket disconnected"))
                 }
             }
 

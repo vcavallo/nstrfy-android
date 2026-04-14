@@ -910,36 +910,19 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
 
     private fun refreshAllSubscriptions() {
         lifecycleScope.launch(Dispatchers.IO) {
-            Log.d(TAG, "Polling for new notifications")
-            var errors = 0
-            var errorMessage = "" // First error
-            var newNotificationsCount = 0
-            repository.getSubscriptions().forEach { subscription ->
-                Log.d(TAG, "Polling subscription: $subscription")
-                try {
-                    val newNotifications = poller.poll(subscription)
-                    newNotificationsCount += newNotifications.size
-                    newNotifications.forEach { notification ->
-                        dispatcher?.dispatch(subscription, notification)
-                    }
-                } catch (e: Exception) {
-                    val topic = displayName(appBaseUrl, subscription)
-                    if (errorMessage == "") errorMessage = "$topic: ${e.message}"
-                    errors++
-                }
-            }
-            val toastMessage = if (errors > 0) {
-                getString(R.string.refresh_message_error, errors, errorMessage)
-            } else if (newNotificationsCount == 0) {
-                getString(R.string.refresh_message_no_results)
-            } else {
-                getString(R.string.refresh_message_result, newNotificationsCount)
-            }
+            Log.d(TAG, "Refreshing nostr connections")
+            // Force reconnect of all nostr connections so we pick up any missed events
+            repository.getSubscriptions()
+                .map { it.baseUrl }
+                .distinct()
+                .forEach { repository.incrementConnectionForceReconnectVersion(it) }
+            SubscriberServiceManager.refresh(this@MainActivity)
+            // Also try to decrypt any pending encrypted events
+            tryDecryptPendingEvents()
             runOnUiThread {
-                Toast.makeText(this@MainActivity, toastMessage, Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, "Reconnecting to relays…", Toast.LENGTH_SHORT).show()
                 mainListContainer.isRefreshing = false
             }
-            Log.d(TAG, "Finished polling for new notifications")
         }
     }
 
