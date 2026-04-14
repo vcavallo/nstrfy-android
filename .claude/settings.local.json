@@ -40,7 +40,9 @@
       "Bash(unzip -l /tmp/quartz.aar)",
       "Bash(unzip -o quartz.aar classes.jar)",
       "Bash(unzip -l classes.jar)",
-      "Bash(nix-shell -p python3 --run 'python3 -c \":*)"
+      "Bash(nix-shell -p python3 --run 'python3 -c \":*)",
+      "Bash(curl:*)",
+      "Bash(pkill -f \"python3 -m http.server\")"
     ]
   }
 }
