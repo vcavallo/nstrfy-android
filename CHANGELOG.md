@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## v1.2.2
+
+### Added
+
+- Connection keepalive and re-alive
+
 ## v1.2.0
 
 ### Changed
