@@ -100,6 +100,29 @@ Or with a standard Android development setup:
 
 The APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 
+### Release builds
+
+Use `build-release.sh` to build a versioned, signed (debug-key) release APK. The script reads `versionName` from `app/build.gradle` and renames the output accordingly.
+
+```bash
+# Bump versionCode + versionName in app/build.gradle first, then:
+./build-release.sh           # Build + rename to nstrfy-<VERSION>.apk
+./build-release.sh --serve   # Also (re)start a local HTTP server on :8222 for sideloading
+```
+
+The script prints the SHA-256 of the resulting APK — handy for zapstore verification.
+
+### Release ceremony
+
+1. Bump `versionCode` (monotonic int) and `versionName` (semver) in `app/build.gradle`
+2. Update `VERSION` and `CHANGELOG.md`
+3. Commit the version bump
+4. Tag: `git tag v<VERSION>`
+5. Build: `./build-release.sh`
+6. Push branch + tag: `git push fork <branch> && git push fork v<VERSION>`
+7. Create GitHub release on the tag, attach `nstrfy-<VERSION>.apk`
+8. Publish to zapstore: `zsp publish`
+
 ## Architecture
 
 nstrfy is a fork of [ntfy-android](https://github.com/binwiederhier/ntfy-android) with the HTTP transport layer replaced by nostr:
